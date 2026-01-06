@@ -1,0 +1,8 @@
+{
+  "name": "TeachTracker - Sun'iy Intellekt Tekshiruvi",
+  "description": "1-5 sinf o'quvchilarining diktantlarini tahlil qiluvchi va xatolarini tuzatib beruvchi aqlli platforma.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
