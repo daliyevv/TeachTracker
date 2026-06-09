@@ -1,27 +1,26 @@
 
 import React, { useState } from 'react';
 import { Submission, AnalysisResult } from '../types';
-import { DB } from '../services/mockDB';
+import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
 
 interface Props { sub: Submission; onClose: () => void; }
 
 export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
-  const [editedResult, setEditedResult] = useState<AnalysisResult>({ ...sub.aiResult });
+  const [editedResult, setEditedResult] = useState<AnalysisResult>({ ...sub.ttResult });
   const [activeTab, setActiveTab] = useState<'preview' | 'edit'>('preview');
 
-  const handleApprove = () => {
-    const updated: Submission = {
-      ...sub,
+  const handleApprove = async () => {
+    const updateData: Partial<Submission> = {
       teacherCorrection: editedResult,
       status: 'approved',
       approvedAt: Date.now()
     };
-    DB.updateSubmission(updated);
+    await DB.updateSubmission(sub.id, updateData);
     onClose();
   };
 
-  const updateMistake = (idx: number, field: string, val: string) => {
+  const updateMistake = (idx: number, field: string, val: any) => {
     const newMistakes = [...editedResult.mistakes];
     (newMistakes[idx] as any)[field] = val;
     setEditedResult({ ...editedResult, mistakes: newMistakes });
@@ -32,6 +31,8 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
     setEditedResult({ ...editedResult, mistakes: newMistakes });
   };
 
+  const mistakes = editedResult?.mistakes || [];
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] overflow-y-auto">
       <div className="min-h-screen flex flex-col p-4 sm:p-10">
@@ -39,7 +40,7 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
           <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50">
             <div>
               <h3 className="text-2xl font-black text-slate-900">Tekshiruv paneli</h3>
-              <p className="text-slate-500 font-medium">AI natijalarini tahrirlang va tasdiqlang.</p>
+              <p className="text-slate-500 font-medium">Teach Tracker natijalarini tahrirlang va tasdiqlang.</p>
             </div>
             <div className="flex space-x-2 bg-white p-2 rounded-2xl border border-slate-200">
               <button 
@@ -62,7 +63,7 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
 
           <div className="flex-grow overflow-y-auto p-8">
             {activeTab === 'preview' ? (
-              <ResultView result={editedResult} imageSrc={sub.image} />
+              <ResultView result={editedResult} images={sub.images} />
             ) : (
               <div className="space-y-10 animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -91,12 +92,12 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h4 className="font-black text-slate-800 uppercase tracking-wider text-sm">Xatolar ro'yxati:</h4>
-                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{editedResult.mistakes.length} ta xato</span>
+                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{mistakes.length} ta xato</span>
                   </div>
                   
                   <div className="space-y-4">
-                    {editedResult.mistakes.map((m, i) => (
-                      <div key={i} className="group relative p-6 bg-slate-50 rounded-3xl border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-6 transition-all hover:bg-white hover:shadow-xl hover:shadow-slate-100">
+                    {mistakes.map((m, i) => (
+                      <div key={i} className="group relative p-6 bg-slate-50 rounded-3xl border border-slate-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 transition-all hover:bg-white hover:shadow-xl hover:shadow-slate-100">
                          {/* O'chirish tugmasi */}
                          <button 
                            onClick={() => deleteMistake(i)}
@@ -130,10 +131,19 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
                              className="w-full p-3 rounded-xl border-2 border-white focus:border-indigo-300 outline-none transition-all text-sm text-slate-600" 
                            />
                          </div>
+                         <div className="space-y-1">
+                           <p className="text-[10px] font-black uppercase text-slate-400 ml-1">Sahifa (0-index)</p>
+                           <input 
+                             type="number"
+                             value={m.pageIndex} 
+                             onChange={e => updateMistake(i, 'pageIndex', Number(e.target.value))} 
+                             className="w-full p-3 rounded-xl border-2 border-white focus:border-indigo-300 outline-none transition-all text-sm text-slate-600" 
+                           />
+                         </div>
                       </div>
                     ))}
                     
-                    {editedResult.mistakes.length === 0 && (
+                    {mistakes.length === 0 && (
                       <div className="p-10 text-center bg-emerald-50 rounded-[2.5rem] border-2 border-dashed border-emerald-100">
                         <p className="text-emerald-600 font-bold">Barcha xatolar o'chirildi. Ish xatosiz deb hisoblanmoqda!</p>
                       </div>

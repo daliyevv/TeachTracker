@@ -1,8 +1,11 @@
 {
-  "name": "TeachTracker - Sun'iy Intellekt Tekshiruvi",
-  "description": "1-5 sinf o'quvchilarining diktantlarini tahlil qiluvchi va xatolarini tuzatib beruvchi aqlli platforma.",
+  "name": "TeachTracker",
+  "description": "O'quvchilar vazifalarini AI yordamida tekshiruvchi, xatolarni tahlil qilib baholovchi aqlli ta'lim platformasi.",
   "requestFramePermissions": [
     "camera",
     "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

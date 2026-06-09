@@ -1,34 +1,36 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, DictationTask, Submission, ViewType } from '../types';
-import { DB } from '../services/mockDB';
+import { DB } from '../services/dbService';
 import { DictationWorker } from './DictationWorker';
 import { ResultView } from './ResultView';
+import { ResourceLibrary } from './ResourceLibrary';
+import { GamesHub } from './GamesHub';
+import { FileCode, PenTool, BookOpen } from 'lucide-react';
 
 interface Props {
   user: User;
   view?: ViewType;
+  onUserUpdate?: (user: User) => void;
 }
 
-export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
-  const [tasks, setTasks] = useState<DictationTask[]>(DB.getTasks());
+export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserUpdate }) => {
+  const [tasks, setTasks] = useState<DictationTask[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
   const [activeTask, setActiveTask] = useState<DictationTask | null>(null);
   const [viewResult, setViewResult] = useState<Submission | null>(null);
 
-  const refreshData = () => {
-    const allSubs = DB.getSubmissions();
-    const userSubs = allSubs.filter(s => s.studentId === user.id);
-    setSubs(userSubs);
-    setTasks(DB.getTasks());
-  };
-
   useEffect(() => {
-    refreshData();
-  }, [user.id, view]);
+    const unsubTasks = DB.subscribeToTasks(setTasks);
+    const unsubSubs = DB.subscribeToSubmissions(setSubs, user.id);
+
+    return () => {
+      unsubTasks();
+      unsubSubs();
+    };
+  }, [user.id]);
 
   const handleSubmitted = () => {
-    refreshData();
     setActiveTask(null);
   };
 
@@ -42,16 +44,25 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Salom, {user.name.split(' ')[0]}! 👋</h2>
-            <p className="text-slate-500 font-medium mt-1">Bugun qaysi diktantni yozamiz?</p>
+            <p className="text-slate-500 font-medium mt-1">Bugun qaysi vazifani bajaramiz?</p>
           </div>
           <div className="flex space-x-3">
+             {user.badges && user.badges.length > 0 && (
+               <div className="bg-amber-50 px-5 py-3 rounded-2xl border border-amber-100 shadow-sm flex items-center space-x-3">
+                  <span className="text-2xl">🏆</span>
+                  <div className="flex flex-col">
+                    <span className="text-xl font-black text-amber-600">{user.badges.length}</span>
+                    <span className="text-[8px] font-black text-amber-400 uppercase tracking-widest leading-none">Mukofotlar</span>
+                  </div>
+               </div>
+             )}
              <div className="bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-3">
                 <span className="text-2xl font-black text-indigo-600">{subs.length}</span>
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Topshirildi</span>
              </div>
              <div className="bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-3">
                 <span className="text-2xl font-black text-emerald-500">
-                  {completedSubs.length ? (completedSubs.reduce((acc, s) => acc + (s.teacherCorrection?.grade || s.aiResult.grade), 0) / completedSubs.length).toFixed(1) : '0'}
+                  {completedSubs.length ? (completedSubs.reduce((acc, s) => acc + (s.teacherCorrection?.grade || s.ttResult.grade), 0) / completedSubs.length).toFixed(1) : '0'}
                 </span>
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">O'rtacha</span>
              </div>
@@ -72,8 +83,14 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
               >
                 <div>
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      t.type === 'coding' ? 'bg-indigo-50 text-indigo-600' : 
+                      t.type === 'dictation' ? 'bg-rose-50 text-rose-600' : 
+                      'bg-emerald-50 text-emerald-600'
+                    }`}>
+                      {t.type === 'coding' ? <FileCode className="w-5 h-5" /> : 
+                       t.type === 'dictation' ? <PenTool className="w-5 h-5" /> : 
+                       <BookOpen className="w-5 h-5" />}
                     </div>
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{new Date(t.createdAt).toLocaleDateString()}</span>
                   </div>
@@ -106,7 +123,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
               {subs.slice(0, 4).map(s => {
                 const task = tasks.find(t => t.id === s.taskId);
                 const isApproved = s.status === 'approved';
-                const grade = s.teacherCorrection?.grade || s.aiResult.grade;
+                const grade = s.teacherCorrection?.grade || s.ttResult?.grade || 0;
                 return (
                   <button 
                     key={s.id}
@@ -121,8 +138,8 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
                       )}
                     </div>
                     <div className="overflow-hidden">
-                      <p className="font-bold text-slate-800 text-sm truncate group-hover:text-emerald-600 transition-colors">{task?.title || 'Diktant'}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{isApproved ? 'Tasdiqlangan' : 'AI Tahlili'}</p>
+                      <p className="font-bold text-slate-800 text-sm truncate group-hover:text-emerald-600 transition-colors">{task?.title || 'Vazifa'}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{isApproved ? 'Tasdiqlangan' : 'Teach Tracker Tahlili'}</p>
                     </div>
                   </button>
                 );
@@ -131,7 +148,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
           </section>
         )}
 
-        {activeTask && <DictationWorker task={activeTask} user={user} onCancel={() => setActiveTask(null)} onSubmitted={handleSubmitted} />}
+        {activeTask && <DictationWorker task={activeTask} user={user} onCancel={() => setActiveTask(null)} onSubmitted={handleSubmitted} onUserUpdate={onUserUpdate} />}
         {viewResult && (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[200] overflow-y-auto p-4 py-12 flex justify-center">
             <div className="max-w-5xl w-full relative animate-in zoom-in-95 duration-300">
@@ -139,15 +156,13 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
                 <h3 className="text-xl font-black uppercase tracking-widest">Natija tafsilotlari</h3>
                 <button onClick={() => setViewResult(null)} className="p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">Yopish</button>
               </div>
-              <ResultView result={viewResult.teacherCorrection || viewResult.aiResult} imageSrc={viewResult.image} />
+              <ResultView result={viewResult.teacherCorrection || viewResult.ttResult} images={viewResult.images} files={viewResult.files} />
             </div>
           </div>
         )}
       </div>
     );
   }
-
-  // Boshqa viewlar (tasks, results) uchun mavjud kodlar o'zgarishsiz qoladi yoki bir xil ixcham uslubga moslanadi
   if (view === 'tasks') {
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
@@ -158,8 +173,15 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
             return (
               <div key={t.id} className={`p-6 rounded-[2.5rem] border-2 transition-all shadow-sm ${hasSubmitted ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-white hover:border-indigo-600 hover:shadow-lg'}`}>
                 <div className="flex justify-between items-start mb-4">
-                  <div className={`p-3 rounded-xl ${hasSubmitted ? 'bg-slate-200 text-slate-400' : 'bg-indigo-100 text-indigo-600'}`}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <div className={`p-3 rounded-xl ${
+                    hasSubmitted ? 'bg-slate-200 text-slate-400' : 
+                    t.type === 'coding' ? 'bg-indigo-100 text-indigo-600' : 
+                    t.type === 'dictation' ? 'bg-rose-100 text-rose-600' : 
+                    'bg-emerald-100 text-emerald-600'
+                  }`}>
+                    {t.type === 'coding' ? <FileCode className="w-5 h-5" /> : 
+                     t.type === 'dictation' ? <PenTool className="w-5 h-5" /> : 
+                     <BookOpen className="w-5 h-5" />}
                   </div>
                   {hasSubmitted && <span className="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider">Bajarilgan</span>}
                 </div>
@@ -177,7 +199,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
             );
           })}
         </div>
-        {activeTask && <DictationWorker task={activeTask} user={user} onCancel={() => setActiveTask(null)} onSubmitted={handleSubmitted} />}
+        {activeTask && <DictationWorker task={activeTask} user={user} onCancel={() => setActiveTask(null)} onSubmitted={handleSubmitted} onUserUpdate={onUserUpdate} />}
       </div>
     );
   }
@@ -190,7 +212,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
           {subs.map(s => {
             const task = tasks.find(t => t.id === s.taskId);
             const isApproved = s.status === 'approved';
-            const grade = s.teacherCorrection?.grade || s.aiResult.grade;
+            const grade = s.teacherCorrection?.grade || s.ttResult?.grade || 0;
             return (
               <div key={s.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 flex items-center justify-between group">
                 <div className="flex items-center space-x-4">
@@ -212,6 +234,20 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home' }) => {
             );
           })}
         </div>
+      </div>
+    );
+  }
+
+  if (view === 'library') return <ResourceLibrary />;
+  if (view === 'games') return <GamesHub />;
+  if (view === 'ai-assistant') {
+    return (
+      <div className="text-center py-20 space-y-6">
+        <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto">
+          <svg className="w-12 h-12 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+        </div>
+        <h3 className="text-2xl font-black text-slate-900">Faqat Ustozlar uchun</h3>
+        <p className="text-slate-500 font-medium max-w-sm mx-auto">AI Yordamchi vositasi faqat o'qituvchilar uchun dars materiallarini yaratishga mo'ljallangan.</p>
       </div>
     );
   }

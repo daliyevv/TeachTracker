@@ -32,24 +32,44 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, currentView, onL
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center space-x-8">
+          <nav className="hidden lg:flex items-center space-x-6">
             <button 
               onClick={() => onNavigate('home')}
-              className={`text-sm font-bold transition-all ${currentView === 'home' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`text-xs font-black uppercase tracking-wider transition-all ${currentView === 'home' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Asosiy
             </button>
             <button 
               onClick={() => onNavigate('tasks')}
-              className={`text-sm font-bold transition-all ${currentView === 'tasks' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`text-xs font-black uppercase tracking-wider transition-all ${currentView === 'tasks' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Vazifalar
             </button>
             <button 
               onClick={() => onNavigate('results')}
-              className={`text-sm font-bold transition-all ${currentView === 'results' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`text-xs font-black uppercase tracking-wider transition-all ${currentView === 'results' ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Natijalar
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-2"></div>
+            <button 
+              onClick={() => onNavigate('ai-assistant')}
+              className={`text-xs font-black uppercase tracking-wider transition-all flex items-center space-x-1 ${currentView === 'ai-assistant' ? 'text-violet-600 border-b-2 border-violet-600 pb-1' : 'text-slate-400 hover:text-violet-600'}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <span>AI Yordamchi</span>
+            </button>
+            <button 
+              onClick={() => onNavigate('library')}
+              className={`text-xs font-black uppercase tracking-wider transition-all ${currentView === 'library' ? 'text-emerald-600 border-b-2 border-emerald-600 pb-1' : 'text-slate-400 hover:text-emerald-600'}`}
+            >
+              Kutubxona
+            </button>
+            <button 
+              onClick={() => onNavigate('games')}
+              className={`text-xs font-black uppercase tracking-wider transition-all ${currentView === 'games' ? 'text-amber-600 border-b-2 border-amber-600 pb-1' : 'text-slate-400 hover:text-amber-600'}`}
+            >
+              O'yinlar
             </button>
           </nav>
 

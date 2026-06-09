@@ -1,83 +1,276 @@
 
-import React, { useState } from 'react';
-import { User, DictationTask, Submission, AnalysisResult } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, DictationTask, Submission, AnalysisResult, SubmissionFile } from '../types';
 import { Uploader } from './Uploader';
-import { detectPaperBounds, analyzeDictation } from '../services/geminiService';
-import { DB } from '../services/mockDB';
+import { detectPaperBounds, analyzeDictation, analyzeAssignment } from '../services/geminiService';
+import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
+import { dictateText, AudioController } from '../services/ttsService';
+import { FileCode, Upload, X, CheckCircle2, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
 
-interface Props { task: DictationTask; user: User; onCancel: () => void; onSubmitted: () => void; }
+interface Props { 
+  task: DictationTask; 
+  user: User; 
+  onCancel: () => void; 
+  onSubmitted: () => void; 
+  onUserUpdate?: (user: User) => void;
+}
 
-export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmitted }) => {
-  const [img, setImg] = useState<string | null>(null);
+export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmitted, onUserUpdate }) => {
+  const [imgs, setImgs] = useState<string[]>([]);
+  const [files, setFiles] = useState<SubmissionFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [croppedImg, setCroppedImg] = useState<string | null>(null);
+  const [croppedImgs, setCroppedImgs] = useState<string[]>([]);
+  const [isDictating, setIsDictating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(Math.max(1.0, task.minPlaybackSpeed || 1.0));
+  const [audioController, setAudioController] = useState<AudioController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isCoding = task.type === 'coding';
+  const isDictation = task.type === 'dictation';
+
+  useEffect(() => {
+    return () => {
+      if (audioController) {
+        audioController.stop();
+      }
+    };
+  }, [audioController]);
+
+  const handleDictate = async () => {
+    if (audioController) {
+      audioController.stop();
+      setAudioController(null);
+      setIsDictating(false);
+      setIsPaused(false);
+      return;
+    }
+
+    setIsDictating(true);
+    const controller = await dictateText(task.content, playbackSpeed, () => {
+      setAudioController(null);
+      setIsDictating(false);
+      setIsPaused(false);
+    });
+    if (controller) {
+      controller.setSpeed(playbackSpeed);
+      setAudioController(controller);
+    } else {
+      setIsDictating(false);
+    }
+  };
+
+  const togglePause = () => {
+    if (!audioController) return;
+    if (isPaused) {
+      audioController.resume();
+      setIsPaused(false);
+    } else {
+      audioController.pause();
+      setIsPaused(true);
+    }
+  };
+
+  const handleSpeedChange = (newSpeed: number) => {
+    const min = task.minPlaybackSpeed || 1.0;
+    const speed = Math.max(min, newSpeed);
+    setPlaybackSpeed(speed);
+    if (audioController) {
+      audioController.setSpeed(speed);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles) return;
+
+    Array.from(selectedFiles).forEach(file => {
+      const reader = new FileReader();
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const textExtensions = ['py', 'js', 'ts', 'html', 'css', 'java', 'cpp', 'c', 'php', 'rb', 'go', 'rs', 'txt', 'md', 'json', 'ipynb'];
+      const isText = textExtensions.includes(extension) || file.type.startsWith('text/');
+
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        const languageMap: Record<string, string> = {
+          'js': 'javascript',
+          'ts': 'typescript',
+          'py': 'python',
+          'html': 'html',
+          'css': 'css',
+          'java': 'java',
+          'cpp': 'cpp',
+          'c': 'c',
+          'php': 'php',
+          'rb': 'ruby',
+          'go': 'go',
+          'rs': 'rust'
+        };
+
+        if (isText) {
+          setFiles(prev => [...prev, {
+            name: file.name,
+            content: result,
+            mimeType: file.type || 'text/plain',
+            language: languageMap[extension] || 'text'
+          }]);
+        } else {
+          const base64 = result.split(',')[1];
+          setFiles(prev => [...prev, {
+            name: file.name,
+            data: base64,
+            mimeType: file.type || 'application/octet-stream'
+          }]);
+        }
+      };
+
+      if (isText) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const resizeImage = (base64: string, maxSide = 1600): Promise<string> => {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(base64), 10000);
+      const img = new Image();
+      img.onload = () => {
+        clearTimeout(timeout);
+        let { width, height } = img;
+        if (width > maxSide || height > maxSide) {
+          if (width > height) {
+            height = (height / width) * maxSide;
+            width = maxSide;
+          } else {
+            width = (width / height) * maxSide;
+            height = maxSide;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.onerror = () => {
+        clearTimeout(timeout);
+        resolve(base64);
+      };
+      img.src = base64;
+    });
+  };
+
+  const processImage = async (img: string): Promise<string> => {
+    const optimized = await resizeImage(img);
+    try {
+      // detectPaperBounds uchun ham timeout (10 soniya)
+      const boundsPromise = detectPaperBounds(optimized);
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+      const bounds = await Promise.race([boundsPromise, timeoutPromise]);
+      
+      if (!bounds) return optimized;
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(optimized), 10000);
+        const i = new Image();
+        i.crossOrigin = "anonymous";
+        i.onload = () => {
+          clearTimeout(timeout);
+          const canvas = document.createElement('canvas');
+          const [ymin, xmin, ymax, xmax] = bounds;
+          const w = Math.max(1, (xmax - xmin) / 1000 * i.width);
+          const h = Math.max(1, (ymax - ymin) / 1000 * i.height);
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(i, (xmin/1000)*i.width, (ymin/1000)*i.height, w, h, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
+          } else {
+            resolve(optimized);
+          }
+        };
+        i.onerror = () => {
+          clearTimeout(timeout);
+          resolve(optimized);
+        };
+        i.src = optimized;
+      });
+    } catch (e) {
+      console.error("Process image error:", e);
+      return optimized;
+    }
+  };
 
   const handleSubmit = async () => {
-    if (!img) return;
+    if (imgs.length === 0 && files.length === 0) return;
     try {
       setLoading(true);
-      setMsg('Diktant AI orqali tekshirilmoqda...');
+      let ttResult: AnalysisResult;
+      const imageUrls: string[] = [];
+      const finalProcessedImages: string[] = [];
       
-      const bounds = await detectPaperBounds(img);
-      let finalImg = img;
-      
-      if (bounds) {
-        finalImg = await new Promise((resolve) => {
-          const i = new Image();
-          i.crossOrigin = "anonymous";
-          i.onload = () => {
-            const canvas = document.createElement('canvas');
-            const [ymin, xmin, ymax, xmax] = bounds;
-            const w = Math.max(1, (xmax - xmin) / 1000 * i.width);
-            const h = Math.max(1, (ymax - ymin) / 1000 * i.height);
-            canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(i, (xmin/1000)*i.width, (ymin/1000)*i.height, w, h, 0, 0, w, h);
-              resolve(canvas.toDataURL('image/jpeg', 0.9));
-            } else {
-              resolve(img);
-            }
-          };
-          i.onerror = () => resolve(img);
-          i.src = img;
-        });
+      if (imgs.length > 0) {
+        for (let i = 0; i < imgs.length; i++) {
+          setMsg(`${i + 1}-bet tayyorlanmoqda...`);
+          const processed = await processImage(imgs[i]);
+          finalProcessedImages.push(processed);
+
+          setMsg(`${i + 1}-bet yuklanmoqda...`);
+          const url = await DB.uploadImage(processed, `submissions/${user.id}/${Date.now()}_${i}.jpg`);
+          imageUrls.push(url);
+        }
       }
 
-      setMsg('Xatolar tahlil qilinmoqda...');
-      // Endi asl matnni ham yuboramiz
-      const aiResult = await analyzeDictation(finalImg, task.content);
+      if (isDictation) {
+        setMsg('Xatolar tahlil qilinmoqda...');
+        ttResult = await analyzeDictation(finalProcessedImages, task.content);
+      } else {
+        setMsg('Vazifa tahlil qilinmoqda...');
+        ttResult = await analyzeAssignment(files, task.content);
+      }
       
-      const submission: Submission = {
-        id: Math.random().toString(36).substr(2, 9),
+      const submission: Omit<Submission, "id"> = {
         taskId: task.id,
         studentId: user.id,
-        image: finalImg,
-        aiResult: aiResult,
+        images: imageUrls.length > 0 ? imageUrls : undefined,
+        files: files.length > 0 ? files : undefined,
+        ttResult: ttResult,
         status: 'pending',
         submittedAt: Date.now()
       };
 
-      DB.addSubmission(submission);
+      await DB.addSubmission(submission);
       
-      setCroppedImg(finalImg);
-      setAnalysisResult(aiResult);
+      if (ttResult.grade === 5 && onUserUpdate) {
+        const currentBadges = user.badges || [];
+        const newBadges = [...new Set([...currentBadges, 'imlo_ustasi', 'besh_yulduz'])];
+        if (newBadges.length > currentBadges.length) {
+          onUserUpdate({ ...user, badges: newBadges });
+        }
+      }
+      
+      setCroppedImgs(finalProcessedImages);
+      setAnalysisResult(ttResult);
     } catch (e: any) {
       console.error("Submission error:", e);
-      if (e.message?.includes('429')) {
-        alert("Server band (429). Iltimos, bir ozdan keyin qaytadan urinib ko'ring.");
-      } else {
-        alert("Xatolik yuz berdi. Iltimos qaytadan yuklang.");
-      }
+      const errorMsg = e.message || "Xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.";
+      alert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  if (analysisResult && croppedImg) {
+  if (analysisResult) {
     return (
       <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-2xl z-[200] overflow-y-auto p-4 py-10 animate-in fade-in zoom-in duration-500">
         <div className="max-w-5xl mx-auto space-y-8">
@@ -87,11 +280,11 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
             <div className="flex flex-col md:flex-row items-center justify-between relative z-10">
               <div className="flex items-center space-x-6 mb-6 md:mb-0">
                  <div className="w-20 h-20 bg-emerald-500 text-white rounded-3xl flex items-center justify-center shadow-lg">
-                   <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                   <CheckCircle2 className="w-12 h-12" />
                  </div>
                  <div>
                    <h2 className="text-4xl font-black text-slate-900 italic">Qabul qilindi!</h2>
-                   <p className="text-slate-500 font-bold text-lg">Diktantingiz AI tomonidan tahlil qilindi.</p>
+                   <p className="text-slate-500 font-bold text-lg">Vazifangiz Teach Tracker tomonidan tahlil qilindi.</p>
                  </div>
               </div>
               <button 
@@ -102,19 +295,10 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
                 <svg className="w-6 h-6 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
               </button>
             </div>
-
-            <div className="mt-8 p-6 bg-amber-50 border-2 border-amber-200 rounded-3xl flex items-center space-x-4">
-              <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center shrink-0">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <p className="text-sm text-amber-800 font-bold italic text-center md:text-left">
-                Eslatma: Hozirgi natijalar AI tahlili. Yakuniy bahoni ustozingiz tasdiqlashini kuting.
-              </p>
-            </div>
           </div>
 
           <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden">
-             <ResultView result={analysisResult} imageSrc={croppedImg} />
+             <ResultView result={analysisResult} images={croppedImgs} files={files} />
           </div>
 
           <div className="flex justify-center pb-10">
@@ -135,34 +319,148 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
           </button>
           <div className="text-right">
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">{task.title}</h2>
-            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Diktantni yuklash</p>
+            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">
+              {isDictation ? 'Diktantni yuklash' : isCoding ? 'Kod fayllarini yuklash' : 'Vazifani yuklash'}
+            </p>
           </div>
         </div>
 
         <div className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 shadow-2xl space-y-10">
-           <div className="space-y-4">
-             <div className="flex items-center space-x-3">
-               <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
-                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+           <div className="space-y-6">
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+               <div className="flex items-center space-x-3">
+                 <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                   <FileCode className="w-5 h-5" />
+                 </div>
+                 <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">Topshiriq sharti:</h3>
                </div>
-               <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">Diktant matni:</h3>
+               
+               {isDictation && (
+                 <div className="flex flex-col space-y-4">
+                   <div className="flex items-center space-x-3">
+                     <button 
+                       onClick={handleDictate}
+                       className={`flex items-center space-x-3 px-6 py-3 rounded-2xl font-black transition-all shadow-lg ${audioController ? 'bg-rose-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                     >
+                       {audioController ? (
+                         <>
+                           <Square className="w-6 h-6" />
+                           <span>To'xtatish</span>
+                         </>
+                       ) : (
+                         <>
+                           <Volume2 className="w-6 h-6" />
+                           <span>Teach Tracker Diktatori</span>
+                         </>
+                       )}
+                     </button>
+
+                     {audioController && (
+                       <button 
+                         onClick={togglePause}
+                         className="p-3 bg-white border-2 border-slate-100 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+                       >
+                         {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                       </button>
+                     )}
+                   </div>
+
+                   <div className="flex flex-col space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                     <div className="flex justify-between items-center">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">O'qish tezligi</span>
+                       <span className="text-xs font-black text-indigo-600">{playbackSpeed.toFixed(1)}x</span>
+                     </div>
+                     <input 
+                       type="range" min="0.5" max="2.0" step="0.1"
+                       value={playbackSpeed}
+                       onChange={e => handleSpeedChange(parseFloat(e.target.value))}
+                       className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                     />
+                   </div>
+                 </div>
+               )}
              </div>
+             
              <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 font-serif italic text-xl text-slate-700 leading-relaxed shadow-inner">
                "{task.content}"
              </div>
            </div>
 
-           <div className="space-y-6">
-             <div className="flex items-center space-x-3">
-               <div className="w-8 h-8 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center">
-                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
+           {isDictation ? (
+             <div className="space-y-6">
+               <div className="flex items-center space-x-3">
+                 <div className="w-8 h-8 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center">
+                   <Upload className="w-5 h-5" />
+                 </div>
+                 <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">Rasmlarni yuklang (bir nechta bo'lishi mumkin):</h3>
                </div>
-               <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">Rasmni yuklang:</h3>
+               <Uploader onImagesSelect={setImgs} isLoading={loading} />
              </div>
-             <Uploader onImageSelect={setImg} isLoading={loading} />
-           </div>
+           ) : (
+             <div className="space-y-6">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center space-x-3">
+                   <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                     <FileCode className="w-5 h-5" />
+                   </div>
+                   <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">Fayllarni yuklang:</h3>
+                 </div>
+                 <button 
+                   onClick={() => fileInputRef.current?.click()}
+                   className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all"
+                 >
+                   <Upload className="w-4 h-4" />
+                   <span>Fayl tanlash</span>
+                 </button>
+                 <input 
+                   type="file" 
+                   ref={fileInputRef} 
+                   onChange={handleFileChange} 
+                   multiple 
+                   className="hidden" 
+                   accept=".py,.js,.ts,.html,.css,.java,.cpp,.c,.php,.rb,.go,.rs,.txt,.pdf,.doc,.docx,.png,.jpg,.jpeg,.ipynb"
+                 />
+               </div>
 
-           {img && !loading && (
+               {files.length > 0 && (
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                   {files.map((f, i) => (
+                     <div key={i} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between group">
+                       <div className="flex items-center space-x-3 overflow-hidden">
+                         <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                           <FileCode className="w-5 h-5 text-indigo-600" />
+                         </div>
+                         <div className="overflow-hidden">
+                           <p className="text-sm font-bold text-slate-800 truncate">{f.name}</p>
+                           <p className="text-[10px] text-slate-400 font-black uppercase">{f.language}</p>
+                         </div>
+                       </div>
+                       <button 
+                         onClick={() => removeFile(i)}
+                         className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                       >
+                         <X className="w-5 h-5" />
+                       </button>
+                     </div>
+                   ))}
+                 </div>
+               )}
+
+               {files.length === 0 && (
+                 <div 
+                   onClick={() => fileInputRef.current?.click()}
+                   className="py-12 border-4 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center space-y-4 cursor-pointer hover:bg-slate-50 transition-all"
+                 >
+                   <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center">
+                     <Upload className="w-8 h-8" />
+                   </div>
+                   <p className="text-slate-400 font-bold italic">Fayllarni (kod, PDF, rasm, .ipynb) shu yerga yuklang...</p>
+                 </div>
+               )}
+             </div>
+           )}
+
+           {(imgs.length > 0 || files.length > 0) && !loading && (
              <div className="pt-6 border-t border-slate-100 flex flex-col items-center">
                <button 
                  onClick={handleSubmit}
@@ -176,10 +474,10 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
 
            {loading && (
              <div className="flex flex-col items-center space-y-6 py-20 bg-indigo-50/50 rounded-[3rem] border-4 border-dashed border-indigo-100">
-                <div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                <Loader2 className="w-24 h-24 text-indigo-600 animate-spin" />
                 <div className="text-center">
                   <p className="text-3xl font-black text-indigo-900">{msg}</p>
-                  <p className="text-indigo-400 font-bold mt-2 animate-pulse">Sun'iy intellekt ishlamoqda...</p>
+                  <p className="text-indigo-400 font-bold mt-2 animate-pulse">Teach Tracker ishlamoqda...</p>
                 </div>
              </div>
            )}
