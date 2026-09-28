@@ -17,18 +17,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Firebase ichki xatoliklarini (masalan, suspended API key) tutish uchun global listener
+    // Eski loyihaning to'xtatilgan holati qolgan bo'lsa, tozalaymiz
+    if (localStorage.getItem('firebase_suspended') === 'true') {
+      localStorage.removeItem('firebase_suspended');
+      resetServiceStatus();
+    }
+
     const handleGlobalError = (event: any) => {
       const reason = event.reason?.message || event.message || "";
       if (
-        reason.includes('suspended') || 
-        reason.includes('permission-denied') || 
-        reason.includes('installations/request-failed') ||
         reason.includes('API key has been suspended') ||
-        reason.includes('403') ||
-        reason.includes('PERMISSION_DENIED')
+        reason.includes('API_KEY_SERVICE_BLOCKED')
       ) {
-        console.warn("Global Firebase error detected, switching to local mode:", reason);
+        console.warn("Firebase API key suspended, switching to local mode:", reason);
         localStorage.setItem('firebase_suspended', 'true');
         setServiceDegraded(true);
       }
@@ -36,11 +37,6 @@ export default function App() {
 
     window.addEventListener('unhandledrejection', handleGlobalError);
     window.addEventListener('error', handleGlobalError);
-
-    // Agar avvaldan suspended bo'lsa, darhol degraded rejimga o'tamiz
-    if (localStorage.getItem('firebase_suspended')) {
-      setServiceDegraded(true);
-    }
 
     if (!auth) {
       setLoading(false);
@@ -84,10 +80,10 @@ export default function App() {
 
     const userData: User = {
       id: pendingUser.uid,
-      name: pendingUser.name,
-      email: pendingUser.email,
+      name: pendingUser.name || "Foydalanuvchi",
+      email: pendingUser.email || "",
       role: role,
-      avatar: pendingUser.picture,
+      avatar: pendingUser.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pendingUser.uid}`,
       badges: []
     };
 

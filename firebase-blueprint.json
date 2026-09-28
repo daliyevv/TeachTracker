@@ -1,0 +1,182 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account and profile information for teachers and students",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique user ID matching Firebase Auth UID",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the user",
+          "maxLength": 200
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "description": "Role in the system",
+          "enum": ["teacher", "student"]
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Avatar image URL",
+          "maxLength": 3000
+        },
+        "badges": {
+          "type": "array",
+          "description": "Earned reward badges",
+          "items": { "type": "string" }
+        },
+        "points": {
+          "type": "number",
+          "description": "Gamification points earned"
+        },
+        "isPro": {
+          "type": "boolean",
+          "description": "Subscription tier flag"
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "description": "Stripe subscription status",
+          "enum": ["active", "canceled", "none"]
+        },
+        "stripeCustomerId": {
+          "type": "string",
+          "description": "Stripe customer identifier",
+          "maxLength": 128
+        }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Dictation or assignment task created by a teacher",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique task ID",
+          "maxLength": 128
+        },
+        "teacherId": {
+          "type": "string",
+          "description": "UID of the teacher who created the task",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the task",
+          "maxLength": 300
+        },
+        "content": {
+          "type": "string",
+          "description": "Main task content or dictation text",
+          "maxLength": 50000
+        },
+        "instructionFileUrl": {
+          "type": "string",
+          "description": "Optional URL for instructions",
+          "maxLength": 1000
+        },
+        "instructionText": {
+          "type": "string",
+          "description": "Optional text instructions",
+          "maxLength": 5000
+        },
+        "type": {
+          "type": "string",
+          "description": "Category of task",
+          "enum": ["dictation", "coding", "general"]
+        },
+        "audioUrl": {
+          "type": "string",
+          "description": "Optional URL for audio dictation",
+          "maxLength": 1000
+        },
+        "minPlaybackSpeed": {
+          "type": "number",
+          "description": "Minimum playback speed allowed"
+        },
+        "status": {
+          "type": "string",
+          "description": "Publication status of the task",
+          "enum": ["published", "closed"]
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp in milliseconds when task was created"
+        }
+      },
+      "required": ["teacherId", "title", "content", "status", "createdAt"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student work submission for a task",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique submission ID",
+          "maxLength": 128
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Reference ID of the task",
+          "maxLength": 128
+        },
+        "studentId": {
+          "type": "string",
+          "description": "UID of the student who submitted the work",
+          "maxLength": 128
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Name of the student",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "description": "Evaluation status",
+          "enum": ["pending", "reviewing", "approved"]
+        },
+        "submittedAt": {
+          "type": "number",
+          "description": "Timestamp in milliseconds when submission occurred"
+        },
+        "approvedAt": {
+          "type": "number",
+          "description": "Timestamp in milliseconds when teacher approved"
+        }
+      },
+      "required": ["taskId", "studentId", "status", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "User profiles storing role, gamification, and account info"
+    },
+    "/tasks/{taskId}": {
+      "schema": {
+        "$ref": "#/entities/Task"
+      },
+      "description": "Tasks created by teachers for dictation and assignments"
+    },
+    "/submissions/{submissionId}": {
+      "schema": {
+        "$ref": "#/entities/Submission"
+      },
+      "description": "Student submissions and teacher reviews"
+    }
+  }
+}

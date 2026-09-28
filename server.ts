@@ -28,7 +28,14 @@ const getApiKey = () => {
   return key;
 };
 
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+const ai = new GoogleGenAI({
+  apiKey: getApiKey(),
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
   return Promise.race([
@@ -39,6 +46,90 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T
   ]);
 };
 
+async function generateWithFallback(params: {
+  contents: any;
+  config?: any;
+  preferredModel?: string;
+  timeoutMs?: number;
+}) {
+  const models = [
+    params.preferredModel || 'gemini-3.1-pro-preview',
+    'gemini-3.8-flash',
+    'gemini-flash-latest'
+  ];
+  const uniqueModels = [...new Set(models)];
+  let lastError: any = null;
+
+  for (const model of uniqueModels) {
+    try {
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        }),
+        params.timeoutMs || 45000
+      );
+      return response;
+    } catch (err: any) {
+      console.warn(`Model ${model} failed:`, err?.message || err);
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+function sanitizeMistakeBoundingBox(m: any) {
+  let box = Array.isArray(m.box_2d) && m.box_2d.length === 4
+    ? [...m.box_2d]
+    : (Array.isArray(m.boundingBox) && m.boundingBox.length === 4 ? [...m.boundingBox] : [0, 0, 0, 0]);
+
+  if (box.length === 4) {
+    let [c0, c1, c2, c3] = box.map((v: any) => Number(v) || 0);
+    // 1. Agar 0.0 - 1.0 oralig'ida bo'lsa (kasr sonlar), 1000 ga ko'paytiramiz
+    const maxVal = Math.max(c0, c1, c2, c3);
+    if (maxVal > 0 && maxVal <= 1.0) {
+      c0 *= 1000;
+      c1 *= 1000;
+      c2 *= 1000;
+      c3 *= 1000;
+    }
+
+    // Gemini 2D koordinatalari: [ymin, xmin, ymax, xmax]
+    let ymin = Math.min(c0, c2);
+    let ymax = Math.max(c0, c2);
+    let xmin = Math.min(c1, c3);
+    let xmax = Math.max(c1, c3);
+
+    ymin = Math.max(0, Math.min(1000, Math.round(ymin)));
+    xmin = Math.max(0, Math.min(1000, Math.round(xmin)));
+    ymax = Math.max(0, Math.min(1000, Math.round(ymax)));
+    xmax = Math.max(0, Math.min(1000, Math.round(xmax)));
+
+    // Minimum kenglik va balandlikni ta'minlaymiz (ayniqsa tinish belgilari yoki qisqa so'zlar uchun)
+    if (xmax - xmin < 30 && xmax - xmin >= 0) {
+      const mid = (xmin + xmax) / 2;
+      xmin = Math.max(0, Math.round(mid - 16));
+      xmax = Math.min(1000, Math.round(mid + 16));
+    }
+    if (ymax - ymin < 18 && ymax - ymin >= 0) {
+      const mid = (ymin + ymax) / 2;
+      ymin = Math.max(0, Math.round(mid - 10));
+      ymax = Math.min(1000, Math.round(mid + 10));
+    }
+
+    box = [ymin, xmin, ymax, xmax];
+  } else {
+    box = [0, 0, 0, 0];
+  }
+  return {
+    ...m,
+    box_2d: box,
+    boundingBox: box,
+    pageIndex: typeof m.pageIndex === 'number' ? m.pageIndex : 0
+  };
+}
+
 // API Routes
 app.post("/api/gemini/detect-paper-bounds", async (req, res) => {
   try {
@@ -46,11 +137,14 @@ app.post("/api/gemini/detect-paper-bounds", async (req, res) => {
     if (!base64Image) {
       return res.status(400).json({ error: "base64Image is required" });
     }
-    const response = await withTimeout(ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const mimeType = base64Image.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+    const cleanData = base64Image.split(',')[1] || base64Image;
+
+    const response = await generateWithFallback({
+      preferredModel: 'gemini-3.8-flash',
       contents: {
         parts: [
-          { inlineData: { mimeType: 'image/jpeg', data: base64Image.split(',')[1] || base64Image } },
+          { inlineData: { mimeType, data: cleanData } },
           { text: "Ushbu rasmdagi yozuv yozilgan asosiy oq varoqni top. Uning [ymin, xmin, ymax, xmax] koordinatalarini 0-1000 oralig'ida faqat JSON formatida qaytar. 'bounds' kalitidan foydalan." }
         ],
       },
@@ -63,20 +157,24 @@ app.post("/api/gemini/detect-paper-bounds", async (req, res) => {
           },
           required: ["bounds"]
         }
-      }
-    }), 15000);
+      },
+      timeoutMs: 15000
+    });
 
     const result = JSON.parse(response.text || "{\"bounds\": null}");
-    res.json({ bounds: result.bounds });
+    res.json({ bounds: result.bounds || null });
   } catch (error: any) {
-    console.error("Detect Bounds Error:", error);
-    res.status(500).json({ error: error.message });
+    console.warn("Detect Bounds Warn (falling back to full image):", error?.message || error);
+    res.json({ bounds: null });
   }
 });
 
 app.post("/api/gemini/analyze-dictation", async (req, res) => {
   try {
     const { base64Images, originalText } = req.body;
+    if (!base64Images || !Array.isArray(base64Images) || base64Images.length === 0) {
+      return res.status(400).json({ error: "base64Images is required" });
+    }
     
     const systemInstruction = `
       Sen 1-5 sinf o'quvchilari uchun eng qattiqqo'l lekin adolatli o'zbek tili o'qituvchisisan.
@@ -88,14 +186,37 @@ app.post("/api/gemini/analyze-dictation", async (req, res) => {
       - Buni imlo xatosi deb hisoblash QAT'IYAN TAQIQLANADI. 
       - Faqatgina 'o' yoki 'g' harfi ustida UMUMAN BELGI BO'LMASA, o'shanda imlo xatosi deb belgilashing mumkin.
 
-      IMLO TEKSHIRISH (SPELLING):
-      - Asl matn: "${originalText}"
-      - O'quvchi yozgan har bir so'zni ushbu asl matn bilan harfma-harf solishtir.
-      - Harf tushib qolishi (masalan: "maktab" o'rniga "matab") yoki ortiqcha harf qo'shilishini xato deb ol.
-      - Tinish belgilariga (nuqta, vergul, so'roq) ham e'tibor ber.
+      IMLO VA TINISH BELGILARINI TEKSHIRISH (SPELLING & PUNCTUATION):
+      - Asl matn: "${originalText || ''}"
+      - O'quvchi yozgan har bir so'zni ushbu asl matn bilan so'zma-so'z, harfma-harf solishtir.
+      - Harf tushib qolishi, ortiqcha harf qo'shilishi yoki xato harf yozilishini aniq top.
+      - Tinish belgilariga (nuqta, vergul, ikki nuqta ':', undov '!', so'roq '?') qat'iy e'tibor ber.
 
-      KOORDINATALAR:
-      - Har bir xatoni rasmda [ymin, xmin, ymax, xmax] koordinatalari bilan aniq ko'rsat.
+      2D SPATIAL GROUNDING (BOX_2D KOORDINATALARNI ANIQLASH):
+      Detect the 2D bounding boxes of each misspelled word in the handwritten image in box_2d [ymin, xmin, ymax, xmax] normalized to 0-1000.
+      
+      QAT'IY QOIDALAR (XATO SO'ZNING O'RNINI 100% ANIQ CHIZISH UCHUN):
+      1. KONTEKST VA ANKORLAR:
+         - 'lineSnippet': Xato so'z joylashgan butun qator matnini yozing.
+         - 'precedingWord': Xato so'zdan bevosita oldin kelgan so'zni yozing (chapdagi qo'shni so'z). Agar qator boshi bo'lsa '^' deb yozing.
+         - 'word': O'quvchi yozgan aynan xato bitta so'z.
+         - 'box_2d': [ymin, xmin, ymax, xmax] — Aynan shu bitta so'zning rasm ustidagi chegaralari.
+      
+      2. OLDINGI SO'ZNI YOKI BUTUN GAPNI QAMRASH QAT'IYAN TAQIQLANADI:
+         - Masalan: Agar qatorda 'javob berdi:' iborasi bo'lib, xato faqat 'berdi:' so'zida bo'lsa:
+           * precedingWord: "javob"
+           * word: "berdi:"
+           * box_2d: xmin nuqtasi 'javob' so'zidan keyin, 'berdi:' so'zining birinchi 'b' harfidan boshlanishi shart! xmax esa ':' belgisi tugagan joyda bo'lsin.
+           * Qizil chiziq 'javob' so'ziga EMAS, aynan 'berdi:' so'ziga tushishi shart!
+      
+      3. TINISH BELGISI XATOLIKLARI:
+         - Agar tinish belgisi (masalan ':') xato bo'lsa, xato o'sha tinish belgisi tegishli so'z ('berdi:') va uning belgisini o'rab tursin.
+      
+      4. KOORDINATA TA'RIFI (0 dan 1000 gacha butun sonlar):
+         * ymin: So'z harflarining tepa nuqtasi (0-1000)
+         * xmin: So'zning birinchi harfi boshlanish nuqtasi (0-1000)
+         * ymax: So'z harflarining tagi / asosi (0-1000)
+         * xmax: So'zning oxirgi harfi / belgisi tugash nuqtasi (0-1000)
       - AGAR BIR NECHTA RASM BO'LSA, xato qaysi rasmda ekanligini 'pageIndex' (0 dan boshlab) orqali ko'rsat.
     `;
 
@@ -109,15 +230,21 @@ app.post("/api/gemini/analyze-dictation", async (req, res) => {
           items: {
             type: Type.OBJECT,
             properties: {
-              word: { type: Type.STRING },
-              correction: { type: Type.STRING },
+              lineSnippet: { type: Type.STRING, description: "Xato qatnashgan butun qator matni" },
+              precedingWord: { type: Type.STRING, description: "Xato so'zdan oldingi chapdagi so'z. Agar qator boshi bo'lsa '^'" },
+              word: { type: Type.STRING, description: "O'quvchi daftarga yozgan aynan bitta xato so'z" },
+              correction: { type: Type.STRING, description: "So'zning to'g'ri varianti" },
               description: { type: Type.STRING },
               type: { type: Type.STRING, enum: ["imlo", "tinish_belgisi", "uslub"] },
               lineNumber: { type: Type.INTEGER },
-              boundingBox: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+              box_2d: { 
+                type: Type.ARRAY, 
+                items: { type: Type.INTEGER },
+                description: "Detect 2D bounding box [ymin, xmin, ymax, xmax] (0-1000) of the exact handwritten word"
+              },
               pageIndex: { type: Type.INTEGER }
             },
-            required: ["word", "correction", "description", "type", "lineNumber", "boundingBox", "pageIndex"]
+            required: ["word", "correction", "description", "type", "lineNumber", "box_2d", "pageIndex"]
           }
         },
         grade: { type: Type.NUMBER },
@@ -128,16 +255,20 @@ app.post("/api/gemini/analyze-dictation", async (req, res) => {
       required: ["extractedText", "correctedText", "mistakes", "grade", "handwritingScore", "feedback", "improvementTips"]
     };
 
-    const imageParts = base64Images.map((img: string) => ({
-      inlineData: { mimeType: 'image/jpeg', data: img.split(',')[1] || img }
-    }));
+    const imageParts = base64Images.map((img: string) => {
+      const mimeType = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+      const cleanData = img.split(',')[1] || img;
+      return {
+        inlineData: { mimeType, data: cleanData }
+      };
+    });
 
-    const response = await withTimeout(ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const response = await generateWithFallback({
+      preferredModel: 'gemini-3.1-pro-preview',
       contents: {
         parts: [
           ...imageParts,
-          { text: `Diktantni "${originalText}" matni asosida tekshir. Jami ${base64Images.length} ta sahifa yuklandi.` }
+          { text: `Diktantni "${originalText || ''}" matni asosida tekshir. Detect 2D bounding boxes (box_2d) of each mistake in the handwritten images accurately.` }
         ],
       },
       config: {
@@ -145,14 +276,22 @@ app.post("/api/gemini/analyze-dictation", async (req, res) => {
         responseMimeType: "application/json",
         responseSchema,
       },
-    }), 45000);
+      timeoutMs: 45000
+    });
 
     const result = JSON.parse(response.text || "{}");
     if (!result.mistakes) result.mistakes = [];
+    result.mistakes = result.mistakes.map(sanitizeMistakeBoundingBox);
+    if (result.grade === undefined) result.grade = 3;
+    if (result.handwritingScore === undefined) result.handwritingScore = 4;
+    if (!result.feedback) result.feedback = "Vazifa qabul qilindi va tekshirildi.";
+    if (!result.improvementTips) result.improvementTips = [];
+    if (!result.extractedText) result.extractedText = originalText || "";
+    if (!result.correctedText) result.correctedText = originalText || "";
     res.json(result);
   } catch (error: any) {
     console.error("Analyze Dictation Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Diktantni tahlil qilishda xatolik yuz berdi" });
   }
 });
 
@@ -170,11 +309,11 @@ app.post("/api/gemini/analyze-assignment", async (req, res) => {
       1. Topshiriq shartlarini diqqat bilan o'rgan. O'quvchi shartlarni bajarganmi?
       2. Agar bu dasturlash vazifasi bo'lsa, kodning to'g'riligi, mantiqi va tozaligini tekshir.
       3. Agar bu .ipynb (Jupyter Notebook) fayli bo'lsa, u JSON formatida bo'ladi. Undagi 'cells' ichidan kod (code) va matn (markdown) kataklarini topib tahlil qil.
-      4. Agar bu PDF yoki rasm bo'lsa, uning mazmunini tahlil qil.
-      4. Xatolarni aniq ko'rsat va qanday tuzatish kerakligini tushuntir.
-      5. Baholashda adolatli bo'l (1-5 ball tizimida).
+      4. Agar bu PDF yoki rasm bo'lsa, uning mazmunini tahlil qil. Rasmda imlo yoki yozuv xatolari bo'lsa, ularni [ymin, xmin, ymax, xmax] koordinatalari bilan 0-1000 oralig'idagi BUTUN SONLAR bilan aniq ko'rsat va 'pageIndex' (0 dan boshlab) orqali belgilab ber. BoundingBox aynan shu xato so'zni ixcham o'rab tursin!
+      5. Xatolarni aniq ko'rsat va qanday tuzatish kerakligini tushuntir.
+      6. Baholashda adolatli bo'l (1-5 ball tizimida).
       
-      DIQQAT: 'mistakes' massivida 'lineNumber' maydoni matnli bo'lmagan fayllar uchun 0 bo'lishi mumkin.
+      DIQQAT: 'mistakes' massivida 'lineNumber' maydoni matnli bo'lmagan fayllar uchun 0 bo'lishi mumkin. Agar fayllar rasm bo'lsa, har bir xatoga 'boundingBox' ([ymin, xmin, ymax, xmax] 0-1000 butun sonlar) va 'pageIndex' (0, 1...) ni kirit.
     `;
 
     const responseSchema = {
@@ -192,7 +331,11 @@ app.post("/api/gemini/analyze-assignment", async (req, res) => {
               description: { type: Type.STRING, description: "Nima uchun xato ekanligi haqida izoh" },
               type: { type: Type.STRING, enum: ["imlo", "tinish_belgisi", "uslub", "mantiq", "xavfsizlik", "sintaksis"] },
               lineNumber: { type: Type.INTEGER },
-              boundingBox: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+              box_2d: { 
+                type: Type.ARRAY, 
+                items: { type: Type.INTEGER },
+                description: "Detect 2D bounding box [ymin, xmin, ymax, xmax] (0-1000) of the exact mistake"
+              },
               pageIndex: { type: Type.INTEGER }
             },
             required: ["word", "correction", "description", "type", "lineNumber"]
@@ -208,10 +351,11 @@ app.post("/api/gemini/analyze-assignment", async (req, res) => {
 
     const fileParts = files.map((f: any) => {
       if (f.data && f.mimeType) {
+        const cleanData = typeof f.data === 'string' && f.data.includes(',') ? f.data.split(',')[1] : f.data;
         return {
           inlineData: {
             mimeType: f.mimeType,
-            data: f.data
+            data: cleanData
           }
         };
       }
@@ -220,8 +364,8 @@ app.post("/api/gemini/analyze-assignment", async (req, res) => {
       };
     });
 
-    const response = await withTimeout(ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+    const response = await generateWithFallback({
+      preferredModel: 'gemini-3.8-flash',
       contents: {
         parts: [
           ...fileParts,
@@ -233,26 +377,22 @@ app.post("/api/gemini/analyze-assignment", async (req, res) => {
         responseMimeType: "application/json",
         responseSchema,
       },
-    }), 60000);
+      timeoutMs: 50000
+    });
 
     const result = JSON.parse(response.text || "{}");
-    result.mistakes = result.mistakes || [];
+    result.mistakes = (result.mistakes || []).map(sanitizeMistakeBoundingBox);
     result.extractedText = result.extractedText || "";
     result.correctedText = result.correctedText || "";
     result.grade = result.grade || 0;
     result.handwritingScore = result.handwritingScore || 0;
     result.feedback = result.feedback || "";
     result.improvementTips = result.improvementTips || [];
-    result.mistakes = result.mistakes.map((m: any) => ({
-      ...m,
-      boundingBox: m.boundingBox || [0,0,0,0],
-      pageIndex: m.pageIndex || 0
-    }));
 
     res.json(result);
   } catch (error: any) {
     console.error("Analyze Assignment Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Vazifani tahlil qilishda xatolik yuz berdi" });
   }
 });
 
@@ -280,13 +420,14 @@ app.post("/api/gemini/generate-material", async (req, res) => {
       O'zbek tilida yoz.
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const response = await generateWithFallback({
+      preferredModel: 'gemini-3.8-flash',
       contents: prompt,
       config: {
         systemInstruction,
         responseMimeType: isCrossword ? "application/json" : "text/plain",
       },
+      timeoutMs: 40000
     });
 
     if (isCrossword) {
@@ -304,7 +445,7 @@ app.post("/api/gemini/tts", async (req, res) => {
   try {
     const { prompt, voiceName } = req.body;
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-3.8-flash-lite-tts",
       contents: [{ parts: [{ text: prompt }] }],
       config: {
         responseModalities: [Modality.AUDIO],

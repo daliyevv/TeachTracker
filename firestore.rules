@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Master Catch-All Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Security Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isTeacher() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    function isValidUser(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 200 &&
+             data.role in ['teacher', 'student'] &&
+             (!('avatar' in data) || data.avatar == null || (data.avatar is string && data.avatar.size() <= 3000)) &&
+             (!('badges' in data) || data.badges == null || data.badges is list) &&
+             (!('points' in data) || data.points == null || data.points is number) &&
+             (!('isPro' in data) || data.isPro == null || data.isPro is bool) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus == null || data.subscriptionStatus in ['active', 'canceled', 'none']) &&
+             (!('stripeCustomerId' in data) || data.stripeCustomerId == null || (data.stripeCustomerId is string && data.stripeCustomerId.size() <= 128));
+    }
+
+    function isValidTask(data) {
+      return data.teacherId is string && data.teacherId.size() > 0 && data.teacherId.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 50000 &&
+             data.status in ['published', 'closed'] &&
+             data.createdAt is number;
+    }
+
+    function isValidSubmission(data) {
+      return data.taskId is string && data.taskId.size() > 0 && data.taskId.size() <= 128 &&
+             data.studentId is string && data.studentId.size() > 0 && data.studentId.size() <= 128 &&
+             data.status in ['pending', 'reviewing', 'approved'] &&
+             data.submittedAt is number;
+    }
+
+    // Health check / connection test document
+    match /test/{docId} {
+      allow get: if true;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && (isTeacher() || resource.data.id == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUser(incoming()) && incoming().id == userId;
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUser(incoming()) && incoming().id == existing().id &&
+        incoming().role in ['teacher', 'student'];
+      allow delete: if false;
+    }
+
+    // Tasks Collection
+    match /tasks/{taskId} {
+      allow get: if isValidId(taskId);
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
+        incoming().teacherId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
+        existing().teacherId == request.auth.uid &&
+        incoming().teacherId == existing().teacherId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'content', 'minPlaybackSpeed', 'status', 'type',
+          'audioUrl', 'instructionFileUrl', 'instructionText'
+        ]);
+      allow delete: if isSignedIn() && isValidId(taskId) && existing().teacherId == request.auth.uid;
+    }
+
+    // Submissions Collection
+    match /submissions/{submissionId} {
+      allow get: if isSignedIn() && isValidId(submissionId) && (resource.data.studentId == request.auth.uid || isTeacher());
+      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher());
+      
+      allow create: if isSignedIn() && isValidId(submissionId) && isValidSubmission(incoming()) && (
+        (incoming().studentId == request.auth.uid && incoming().status in ['pending', 'reviewing']) ||
+        isTeacher()
+      );
+
+      allow update: if isSignedIn() && isValidId(submissionId) && isValidSubmission(incoming()) &&
+        incoming().taskId == existing().taskId &&
+        incoming().studentId == existing().studentId &&
+        incoming().submittedAt == existing().submittedAt && (
+          (request.auth.uid == existing().studentId && existing().status != 'approved' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['images', 'files', 'ttResult', 'status']) &&
+           incoming().status in ['pending', 'reviewing']) ||
+          (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'teacherCorrection', 'approvedAt']))
+        );
+
+      allow delete: if isSignedIn() && isValidId(submissionId) && (existing().studentId == request.auth.uid || isTeacher());
+    }
+  }
+}
