@@ -1,8 +1,14 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
-import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import {
+  describeAuthError,
+  isUserCancelled,
+  shouldFallBackToRedirect,
+  type AuthErrorInfo,
+} from '../services/authErrors';
 import { setServiceDegraded, getServiceStatus, resetServiceStatus } from '../services/dbService';
 
 interface Props {
@@ -17,7 +23,28 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
   const [showTeacherCode, setShowTeacherCode] = useState(false);
   const [teacherCode, setTeacherCode] = useState('');
   const [roleError, setRoleError] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<AuthErrorInfo | null>(null);
+
+  /**
+   * Redirect bilan kirishdan qaytganda natijani o'qiymiz.
+   *
+   * Nega kerak: `signInWithRedirect` dan keyin Google sahifaga qaytaradi.
+   * Muvaffaqiyatli bo'lsa `onAuthStateChanged` ishga tushadi va App o'zi
+   * davom etadi. Lekin XATO bo'lsa (masalan domen ruxsat etilmagan),
+   * `getRedirectResult` chaqirilmasa u xato HECH QAYERDA ko'rinmaydi —
+   * foydalanuvchi shunchaki kirish ekraniga qaytadi va nega
+   * kirmaganini bilmaydi. Aynan shu holat ilgari sodir bo'lardi.
+   */
+  useEffect(() => {
+    if (!auth) return;
+    let active = true;
+    getRedirectResult(auth).catch((err: any) => {
+      if (!active || isUserCancelled(err)) return;
+      console.error("Redirect bilan kirishdan qaytishda xato:", err);
+      setAuthError(describeAuthError(err));
+    });
+    return () => { active = false; };
+  }, []);
 
   const describeRoleError = (err: any) =>
     err?.code === 'permission-denied'
@@ -67,7 +94,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
         picture: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`
       });
     } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+      if (isUserCancelled(err)) {
         // Foydalanuvchi popupni o'zi yopdi — xato emas
         return;
       }
@@ -80,25 +107,21 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
       //
       // Popup mobil brauzerlarda va Telegram/Instagram ichidagi
       // brauzerlarda tez-tez bloklanadi, shuning uchun redirect'ga o'tamiz.
-      if (
-        err.code === 'auth/popup-blocked' ||
-        err.code === 'auth/operation-not-supported-in-this-environment' ||
-        err.code === 'auth/web-storage-unsupported'
-      ) {
+      if (shouldFallBackToRedirect(err)) {
         try {
           await signInWithRedirect(auth, googleProvider);
           return; // Sahifa Google'ga o'tadi va qaytib keladi
         } catch (redirectErr: any) {
           console.error("Redirect bilan kirish ham ishlamadi:", redirectErr);
+          setAuthError(describeAuthError(redirectErr));
+          return;
         }
       }
 
-      console.error("Google bilan kirishda xato:", err);
-      setAuthError(
-        err.code === 'auth/network-request-failed'
-          ? "Internet aloqasi yo'q. Ulanishni tekshirib, qayta urinib ko'ring."
-          : "Google bilan kirib bo'lmadi. Qayta urinib ko'ring."
-      );
+      // Xato kodini ham saqlaymiz: ilgari hamma sabab bitta umumiy gapga
+      // yig'ilar va muammoni aniqlash imkonsiz edi.
+      console.error("Google bilan kirishda xato:", err?.code, err);
+      setAuthError(describeAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -159,9 +182,17 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
             </div>
             
             {authError && (
-              <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3">
-                {authError}
-              </p>
+              <div role="alert" className="text-left bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3 space-y-1.5">
+                <p className="text-xs font-black text-rose-700">{authError.message}</p>
+                {authError.hint && (
+                  <p className="text-[11px] font-medium text-slate-600 leading-relaxed">{authError.hint}</p>
+                )}
+                {/*
+                  Xato kodi. Telefonda konsolni ochish qiyin, kod esa bitta
+                  skrinshotda ko'rinadi va muammoni aniq aytib beradi.
+                */}
+                <p className="text-[10px] font-mono text-slate-400 pt-0.5 select-all">{authError.code}</p>
+              </div>
             )}
 
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">

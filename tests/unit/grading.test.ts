@@ -221,3 +221,59 @@ test("appendWithinLimit bo'sh ro'yxatga normal qo'shadi", async () => {
   assert.deepEqual(result.next, ['a', 'b']);
   assert.equal(result.rejected, 0);
 });
+
+// --- kirish xatolari ---
+
+test("har bir kirish xatosi O'Z matnini oladi", async () => {
+  const { describeAuthError } = await import('../../services/authErrors.ts');
+
+  // Ilgari bu uchta butunlay boshqa sabab bitta gapga yig'ilardi:
+  // "Google bilan kirib bo'lmadi. Qayta urinib ko'ring."
+  const domain = describeAuthError({ code: 'auth/unauthorized-domain' });
+  const disabled = describeAuthError({ code: 'auth/operation-not-allowed' });
+  const cookies = describeAuthError({ code: 'auth/internal-error' });
+
+  assert.notEqual(domain.message, disabled.message);
+  assert.notEqual(disabled.message, cookies.message);
+  assert.notEqual(domain.message, cookies.message);
+
+  // Sozlama muammosi va foydalanuvchi holati ajratiladi.
+  assert.equal(domain.kind, 'config');
+  assert.equal(disabled.kind, 'config');
+  assert.equal(cookies.kind, 'user');
+  assert.equal(describeAuthError({ code: 'auth/network-request-failed' }).kind, 'network');
+});
+
+test('kirish xatosining kodi har doim saqlanadi', async () => {
+  const { describeAuthError } = await import('../../services/authErrors.ts');
+
+  // Kod interfeysda ko'rsatiladi — telefondan konsolni ochish qiyin.
+  assert.equal(describeAuthError({ code: 'auth/unauthorized-domain' }).code, 'auth/unauthorized-domain');
+  // Notanish kod ham yo'qolmaydi: shu kod bo'yicha muammoni aniqlaymiz.
+  assert.equal(describeAuthError({ code: 'auth/qandaydir-yangi-xato' }).code, 'auth/qandaydir-yangi-xato');
+  assert.equal(describeAuthError({}).code, 'unknown');
+  assert.equal(describeAuthError(null).code, 'unknown');
+  // Notanish xato ham tushunarli matn bilan keladi, bo'sh emas.
+  assert.ok(describeAuthError({ code: 'x' }).message.length > 0);
+  assert.ok(describeAuthError({ code: 'x' }).hint);
+});
+
+test("foydalanuvchi o'zi bekor qilgani xato deb hisoblanmaydi", async () => {
+  const { isUserCancelled } = await import('../../services/authErrors.ts');
+  assert.equal(isUserCancelled({ code: 'auth/popup-closed-by-user' }), true);
+  assert.equal(isUserCancelled({ code: 'auth/cancelled-popup-request' }), true);
+  // Haqiqiy xato jim o'tkazilmasligi kerak.
+  assert.equal(isUserCancelled({ code: 'auth/unauthorized-domain' }), false);
+  assert.equal(isUserCancelled({ code: 'auth/internal-error' }), false);
+  assert.equal(isUserCancelled(null), false);
+});
+
+test('redirect zaxirasi faqat popup ishlamaganda ishlaydi', async () => {
+  const { shouldFallBackToRedirect } = await import('../../services/authErrors.ts');
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/popup-blocked' }), true);
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/operation-not-supported-in-this-environment' }), true);
+  // Domen ruxsat etilmagan bo'lsa, redirect ham ishlamaydi — bekorga
+  // sahifani Google'ga jo'natishning ma'nosi yo'q.
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/unauthorized-domain' }), false);
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/network-request-failed' }), false);
+});
