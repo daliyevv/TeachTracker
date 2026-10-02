@@ -47,6 +47,13 @@ export const describeAuthError = (err: any): AuthErrorInfo => {
   const code = typeof err?.code === 'string' ? err.code : 'unknown';
 
   switch (code) {
+    // TEKSHIRILGAN (2026-10-02): loyihaning ruxsat etilgan domenlari
+    // identitytoolkit.googleapis.com/v1/projects orqali o'qildi va ularning
+    // ichida Vercel domeni YO'Q edi — faqat *.firebaseapp.com, *.web.app va
+    // Google AI Studio'ning ais-*.run.app domenlari bor edi. Ya'ni Google
+    // bilan kirish Vercel'da hech qachon ishlamagan, faqat AI Studio
+    // ko'rinishida ishlardi. Shuning uchun bu holat alohida va eng aniq
+    // maslahat bilan ajratilgan.
     case 'auth/unauthorized-domain': {
       const host = currentHost();
       return {
@@ -56,8 +63,9 @@ export const describeAuthError = (err: any): AuthErrorInfo => {
           ? `Bu manzildan (${host}) kirishga ruxsat yo'q.`
           : "Bu manzildan kirishga ruxsat yo'q.",
         hint:
-          "Ilovaning asosiy manzilidan kiring. Agar bu sinov (preview) havolasi bo'lsa, " +
-          "Google bilan kirish faqat asosiy manzilda ishlaydi.",
+          "Loyiha egasi bu domenni Firebase'ga qo'shishi kerak: " +
+          "Firebase Console -> Authentication -> Settings -> Authorized domains -> Add domain. " +
+          "Shundan keyin Google bilan kirish ishlaydi.",
       };
     }
 
