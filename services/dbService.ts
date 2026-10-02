@@ -220,6 +220,8 @@ export const DB = {
       };
       // O'qituvchi roli taklif kodi bilan beriladi va uni firestore.rules
       // tekshiradi — shuning uchun kod yozuvga albatta kirishi kerak.
+      // setUser to'liq setDoc qilgani uchun kodni har safar uzatmasak,
+      // birinchi oddiy profil saqlashdayoq audit izi yo'qolardi.
       if (user.teacherCode) {
         (sanitizedUser as any).teacherCode = user.teacherCode;
       }
@@ -260,7 +262,11 @@ export const DB = {
 
   // Tasks
   getTasks: async (): Promise<DictationTask[]> => {
-    if (!isFirebaseConfigured || isServiceDegraded) return LocalDB.get(COLLECTIONS.TASKS);
+    // Vazifalar endi autentifikatsiya talab qiladi (firestore.rules), shuning
+    // uchun kirmagan holda so'rov yubormaymiz — submission funksiyalaridagi
+    // kabi. Aks holda bu jimgina permission-denied bo'lib, namuna
+    // vazifalarga tushib ketardi.
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return LocalDB.get(COLLECTIONS.TASKS);
     const path = COLLECTIONS.TASKS;
     try {
       const q = query(collection(db, COLLECTIONS.TASKS), orderBy("createdAt", "desc"));
@@ -422,7 +428,7 @@ export const DB = {
 
   // Real-time listeners
   subscribeToTasks: (callback: (tasks: DictationTask[]) => void) => {
-    if (!isFirebaseConfigured || isServiceDegraded) {
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
       const interval = setInterval(() => {
         callback(LocalDB.get(COLLECTIONS.TASKS));
       }, 2500);

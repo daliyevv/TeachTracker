@@ -99,7 +99,11 @@ service cloud.firestore {
       // Rolni o'zgartirish faqat amaldagi taklif kodi bilan va faqat
       // o'quvchidan o'qituvchiga. Teskari yo'nalish va o'z-o'zini ko'tarish yopiq.
       allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
-        isValidUser(incoming()) && incoming().id == existing().id && (
+        isValidUser(incoming()) && incoming().id == existing().id &&
+        // Mavjud taklif kodini boshqasiga almashtirib bo'lmaydi (audit izi).
+        // Maydonni tushirib qoldirish mumkin, chunki rol alohida qotirilgan.
+        (!('teacherCode' in incoming()) || !('teacherCode' in existing()) ||
+         incoming().teacherCode == existing().teacherCode) && (
           incoming().role == existing().role ||
           (existing().role == 'student' && incoming().role == 'teacher' &&
            validTeacherCode(incoming().teacherCode))
@@ -134,8 +138,15 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(submissionId) && (resource.data.studentId == request.auth.uid || isTeacher());
       allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher());
 
+      // O'quvchi yaratishda ham `teacherCorrection` yoki `approvedAt` yoza
+      // OLMAYDI. Aks holda bahoni `ttResult` dan `teacherCorrection` ga
+      // ko'chirish hech narsa bermasdi — o'quvchi shunchaki yangi maydonni
+      // soxtalashtirardi.
       allow create: if isSignedIn() && isValidId(submissionId) && isValidSubmission(incoming()) && (
-        (incoming().studentId == request.auth.uid && incoming().status in ['pending', 'reviewing']) ||
+        (incoming().studentId == request.auth.uid &&
+         incoming().status in ['pending', 'reviewing'] &&
+         !('teacherCorrection' in incoming()) &&
+         !('approvedAt' in incoming())) ||
         isTeacher()
       );
 
@@ -152,9 +163,14 @@ service cloud.firestore {
           (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'teacherCorrection', 'approvedAt']))
         );
 
-      // O'qituvchining o'chirish huquqi olib tashlandi: u istalgan o'quvchining
-      // ishini yo'q qila olardi. Kodda o'chirish chaqiruvi umuman yo'q.
-      allow delete: if isSignedIn() && isValidId(submissionId) && existing().studentId == request.auth.uid;
+      // O'qituvchining umumiy o'chirish huquqi olib tashlandi: u istalgan
+      // o'quvchining ishini yo'q qila olardi. O'quvchi esa tasdiqlangan ishini
+      // o'chira olmaydi, aks holda yomon bahoni o'chirib qayta topshirardi.
+      // O'qituvchi faqat o'zi qo'lda yuklagan ishni o'chira oladi.
+      allow delete: if isSignedIn() && isValidId(submissionId) && (
+        (existing().studentId == request.auth.uid && existing().status != 'approved') ||
+        (isTeacher() && existing().studentId.matches('^manual_[0-9]+$'))
+      );
     }
   }
 }

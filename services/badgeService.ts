@@ -4,12 +4,22 @@ import { Submission, User } from "../types";
  * Nishon va ball hisobida FAQAT o'qituvchi tasdiqlagan natija ishlatiladi.
  *
  * `ttResult` — AI natijasi, lekin uni o'quvchining brauzeri yozadi (server
- * Admin SDK'siz Firestore'ga yoza olmaydi). Ya'ni unga tayanib bo'lmaydi:
- * o'quvchi o'ziga istalgan bahoni yozib, nishon va ball olishi mumkin edi.
- * Shuning uchun hisob faqat `teacherCorrection` ga asoslanadi.
+ * Admin SDK'siz Firestore'ga yoza olmaydi), shuning uchun unga tayanib
+ * bo'lmaydi. `teacherCorrection` ni esa firestore.rules himoya qiladi:
+ * o'quvchi uni na yaratishda, na keyin yoza oladi.
+ *
+ * `status === 'approved'` sharti — himoyaning ikkinchi qatlami. Qoidalar
+ * birinchi qatlam, bu esa qoidalarda teshik qolsa ham bahoni hisobga
+ * o'tkazmaydi.
+ *
+ * MUHIM: `points` va `badges` maydonlarini o'quvchining brauzeri yozadi va
+ * qoidalar ularning qiymatini tekshira olmaydi (server yozuvchisi yo'q).
+ * Ya'ni ular BEZAK — reyting yoki mukofot uchun ishonchli asos emas.
+ * Ishonchli ko'rsatkich faqat o'qituvchi tasdiqlagan baho.
  */
-const verifiedResult = (s: Submission) => s.teacherCorrection ?? null;
-const verifiedGrade = (s: Submission) => s.teacherCorrection?.grade ?? 0;
+const isVerified = (s: Submission) => s.status === 'approved' && !!s.teacherCorrection;
+const verifiedResult = (s: Submission) => (isVerified(s) ? s.teacherCorrection ?? null : null);
+const verifiedGrade = (s: Submission) => (isVerified(s) ? s.teacherCorrection?.grade ?? 0 : 0);
 
 export type BadgeCategory = 'consistency' | 'accuracy';
 export type BadgeTier = 'bronze' | 'silver' | 'gold' | 'platinum';

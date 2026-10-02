@@ -160,6 +160,42 @@ test("taklif kodini yozish MUMKIN EMAS", async () => {
 
 // ---------------------------------------------------------------- BAHO
 
+test("o'quvchi YARATISHDA o'ziga teacherCorrection yoza OLMAYDI", async () => {
+  // Bu eng muhim test. Avval baho `ttResult` dan `teacherCorrection` ga
+  // ko'chirilgan edi, lekin create qoidasi uni cheklamagani uchun o'quvchi
+  // shunchaki yangi maydonni soxtalashtirardi.
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertFails(
+    setDoc(doc(db, 'submissions', 'sub_forged'), baseSubmission(STUDENT, {
+      teacherCorrection: { grade: 5, mistakes: [], handwritingScore: 5 },
+    }))
+  );
+});
+
+test("o'quvchi YARATISHDA approvedAt yoza OLMAYDI", async () => {
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertFails(
+    setDoc(doc(db, 'submissions', 'sub_forged2'), baseSubmission(STUDENT, {
+      approvedAt: 1700000009000,
+    }))
+  );
+});
+
+test("o'quvchi haqiqiy topshiriqni (DictationWorker shakli) yarata OLADI", async () => {
+  // Ijobiy test: qoidalar ilovaning haqiqiy yozuvini rad etmasligi kerak.
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertSucceeds(
+    setDoc(doc(db, 'submissions', 'sub_real'), {
+      taskId: 'task_1',
+      studentId: STUDENT,
+      images: ['https://firebasestorage.example/a.jpg'],
+      ttResult: { grade: 4, mistakes: [{ type: 'imlo' }], handwritingScore: 4 },
+      status: 'pending',
+      submittedAt: 1700000005000,
+    })
+  );
+});
+
 test("o'quvchi topshirgandan keyin ttResult ni o'zgartira OLMAYDI", async () => {
   const db = testEnv.authenticatedContext(STUDENT).firestore();
   await assertFails(
@@ -214,6 +250,32 @@ test("o'quvchi faqat o'z ishlari bo'yicha so'rov bera OLADI", async () => {
 test("o'qituvchi boshqa o'quvchining ishini o'chira OLMAYDI", async () => {
   const db = testEnv.authenticatedContext(TEACHER).firestore();
   await assertFails(deleteDoc(doc(db, 'submissions', 'sub_student2')));
+});
+
+test("o'quvchi TASDIQLANGAN ishini o'chira OLMAYDI", async () => {
+  // Aks holda yomon bahoni o'chirib, qayta topshirish mumkin bo'lardi.
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'submissions', 'sub_approved'), baseSubmission(STUDENT, {
+      status: 'approved',
+      teacherCorrection: { grade: 2, mistakes: [] },
+      approvedAt: 1700000002000,
+    }));
+  });
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertFails(deleteDoc(doc(db, 'submissions', 'sub_approved')));
+});
+
+test("o'qituvchi qo'lda yuklagan ishini o'chira OLADI", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'submissions', 'sub_manual'), {
+      taskId: 'task_1',
+      studentId: 'manual_1700000000000',
+      status: 'approved',
+      submittedAt: 1700000000000,
+    });
+  });
+  const db = testEnv.authenticatedContext(TEACHER).firestore();
+  await assertSucceeds(deleteDoc(doc(db, 'submissions', 'sub_manual')));
 });
 
 // --------------------------------------------------------------- VAZIFA
