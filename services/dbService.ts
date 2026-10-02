@@ -172,6 +172,12 @@ const LocalDB = {
  * tegishlilarini ko'radi. firestore.rules shu filtr qo'yilganini talab
  * qiladi, shuning uchun filtrsiz so'rov rad etiladi.
  */
+/**
+ * Firestore hujjati uchun xavfsiz chegara. Haqiqiy chegara 1MiB (1048576),
+ * lekin maydon nomlari va ichki yuk uchun zahira qoldiramiz.
+ */
+const MAX_SUBMISSION_BYTES = 900 * 1024;
+
 export type SubmissionFilter = { studentId?: string; teacherId?: string };
 
 const buildSubmissionQuery = (filter?: SubmissionFilter) => {
@@ -400,6 +406,19 @@ export const DB = {
   },
 
   addSubmission: async (sub: Omit<Submission, "id">): Promise<string> => {
+    // Firestore hujjati 1MiB bilan cheklangan. Storage yoqilmagan bo'lsa
+    // rasmlar hujjat ichida base64 holida keladi, shuning uchun hajmni
+    // OLDINDAN tekshiramiz. Ilgari bu tekshirilmas, Firestore yozuvni rad
+    // etar va xato yutilib ketardi — o'quvchi esa "Qabul qilindi!" ni ko'rardi.
+    const approxBytes = JSON.stringify(sub).length;
+    if (approxBytes > MAX_SUBMISSION_BYTES) {
+      const mb = (approxBytes / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        `Topshiriq juda katta (${mb}MB). Kamroq sahifa yuboring yoki rasmlarni ` +
+        `alohida-alohida topshiring.`
+      );
+    }
+
     const localId = Math.random().toString(36).substring(2, 11);
     const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
     subs.unshift({ ...sub, id: localId });
@@ -526,6 +545,19 @@ export const DB = {
     try {
       await Promise.race([uploadPromise, timeoutPromise]);
       return await getDownloadURL(storageRef);
+    } catch (error: any) {
+      // Loyihada Firebase Storage yoqilmagan bo'lishi mumkin (Spark tarifida
+      // bucket umuman yaratilmaydi). Bunday holda rasmni base64 ko'rinishida
+      // hujjat ichida saqlaymiz — bu yagona ishlaydigan yo'l.
+      //
+      // Bu xavfsiz, chunki rasm yuborishdan oldin siqilgan va addSubmission
+      // hujjat hajmini tekshiradi: Firestore chegarasidan oshsa, aniq xato
+      // beradi. Ilgari hajm tekshirilmasdi va topshiriq jimgina yo'qolardi.
+      console.warn(
+        "Storage'ga yuklab bo'lmadi, rasm hujjat ichida saqlanadi:",
+        error?.message || error
+      );
+      return base64;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
