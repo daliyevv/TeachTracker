@@ -4,7 +4,7 @@ import { User, DictationTask, Submission, AnalysisResult, SubmissionFile } from 
 import { Uploader } from './Uploader';
 import { analyzeDictation, analyzeAssignment } from '../services/geminiService';
 import { DB } from '../services/dbService';
-import { ResultView } from './ResultView';
+import { ResultView } from './lazy';
 import { dictateText, AudioController } from '../services/ttsService';
 import { evaluateBadges } from '../services/badgeService';
 import { compressImageDataUrl, mimeTypeFromDataUrl } from '../services/imageService';

@@ -8,7 +8,6 @@ import {
   persistentLocalCache, 
   persistentMultipleTabManager 
 } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 import firebaseConfig from "../firebase-applet-config.json";
 
 // Tozalash: eski sessiyalardan qolgan cheklovlarni tozalaymiz
@@ -38,8 +37,29 @@ try {
 
 export const db = dbInstance;
 export const auth = getAuth(app);
-export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+/**
+ * Firebase Storage — TALAB BO'LGANDA yuklanadi.
+ *
+ * Nega: `firebase/storage` moduli ~72KB va u faqat rasm yuklanganda kerak.
+ * Ilgari u `getStorage(app)` bilan modul yuklanishida chaqirilar, ya'ni
+ * bu vazn ilovaning birinchi ochilishida, hamma uchun to'lanardi — hatto
+ * hech narsa yuklamaydigan o'qituvchi uchun ham.
+ *
+ * Qo'shimcha: loyihaning hozirgi tarifida Storage bucket umuman
+ * yaratilmagan, shuning uchun yuklash baribir base64 ga qaytadi
+ * (qarang dbService.uploadImage). Ya'ni bu modul ko'pincha BEKORGA
+ * yuklanardi.
+ */
+let storagePromise: Promise<import('firebase/storage').FirebaseStorage> | null = null;
+
+export const getStorageLazy = () => {
+  if (!storagePromise) {
+    storagePromise = import('firebase/storage').then(({ getStorage }) => getStorage(app));
+  }
+  return storagePromise;
+};
 
 // Connection testing as mandated by skill guidelines
 export async function testFirestoreConnection(): Promise<boolean> {

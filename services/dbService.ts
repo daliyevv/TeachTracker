@@ -12,8 +12,7 @@ import {
   deleteDoc,
   onSnapshot
 } from "firebase/firestore";
-import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { db, storage, auth, isFirebaseConfigured } from "./firebase";
+import { db, auth, isFirebaseConfigured, getStorageLazy } from "./firebase";
 import { User, DictationTask, Submission } from "../types";
 
 export enum OperationType {
@@ -542,9 +541,16 @@ export const DB = {
    */
   uploadImage: async (base64: string, path: string): Promise<string> => {
     // Demo yoki avtorizatsiyasiz rejim: Storage yo'q, base64 bilan ishlaymiz
-    if (!isFirebaseConfigured || isServiceDegraded || !storage || !auth?.currentUser) {
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
       return base64;
     }
+
+    // Storage moduli va SDK funksiyalari shu yerda — birinchi yuklashda emas.
+    const [storage, { ref, uploadString, getDownloadURL }] = await Promise.all([
+      getStorageLazy(),
+      import("firebase/storage"),
+    ]);
+    if (!storage) return base64;
 
     const storageRef = ref(storage, path);
     const uploadPromise = uploadString(storageRef, base64, "data_url");

@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { speakText, AudioController } from '../services/ttsService';
-import mammoth from 'mammoth';
 import { FileText, Upload, Code, Type as TypeIcon, Music, X } from 'lucide-react';
 
 import { DictationTask, TaskType } from '../types';
@@ -27,6 +26,7 @@ export const TaskCreator: React.FC<Props> = ({ onCancel, onCreate, task }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [audioController, setAudioController] = useState<AudioController | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -40,13 +40,26 @@ export const TaskCreator: React.FC<Props> = ({ onCancel, onCreate, task }) => {
     if (!file) return;
 
     setFileName(file.name);
+    setFileError(null);
     
     if (file.name.endsWith('.docx')) {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const arrayBuffer = event.target?.result as ArrayBuffer;
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        setContent(result.value);
+        try {
+          // `mammoth` ~500KB (gzip bilan ~133KB) va faqat .docx uchun kerak.
+          // Shuning uchun u statik import emas: kutubxona AYNAN .docx fayl
+          // tanlanganda yuklanadi. Ko'p o'qituvchi vazifa matnini qo'lda
+          // yozadi va bu faylni umuman yuklab olmaydi.
+          const mammoth = (await import('mammoth')).default;
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          setContent(result.value);
+        } catch (err) {
+          // Ilgari xato ushlanmasdi: buzilgan .docx jimgina hech narsa
+          // qilmas va o'qituvchi nima bo'lganini bilmasdi.
+          console.error("Word faylini o'qib bo'lmadi:", err);
+          setFileError("Word faylini o'qib bo'lmadi. Matnni qo'lda kiritib ko'ring.");
+        }
       };
       reader.readAsArrayBuffer(file);
     } else {
@@ -150,9 +163,15 @@ export const TaskCreator: React.FC<Props> = ({ onCancel, onCreate, task }) => {
                   <FileText className="w-4 h-4 text-indigo-600" />
                   <span className="text-xs font-bold text-indigo-900 truncate max-w-[200px]">{fileName}</span>
                 </div>
-                <button onClick={() => { setFileName(null); setContent(''); }} className="text-indigo-400 hover:text-indigo-600">
+                <button onClick={() => { setFileName(null); setContent(''); setFileError(null); }} className="text-indigo-400 hover:text-indigo-600">
                   <X className="w-4 h-4" />
                 </button>
+              </div>
+            )}
+
+            {fileError && (
+              <div role="alert" className="p-3 bg-amber-50 border-2 border-amber-200 rounded-xl">
+                <p className="text-xs font-bold text-amber-900">{fileError}</p>
               </div>
             )}
 

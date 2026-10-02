@@ -4,7 +4,7 @@ import { User, DictationTask, Submission, AnalysisResult } from '../types';
 import { Uploader } from './Uploader';
 import { analyzeDictation } from '../services/geminiService';
 import { DB } from '../services/dbService';
-import { ResultView } from './ResultView';
+import { ResultView } from './lazy';
 import { compressImageDataUrl } from '../services/imageService';
 
 interface Props { 
