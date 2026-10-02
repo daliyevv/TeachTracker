@@ -5,8 +5,8 @@ import { User, UserRole, ViewType } from './types';
 import { DB, getServiceStatus, resetServiceStatus, setServiceDegraded } from './services/dbService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { TeacherDashboard } from './components/TeacherDashboard';
-import { StudentDashboard } from './components/StudentDashboard';
+// Panellar alohida bo'laklarda yuklanadi — qarang components/lazy.tsx
+import { TeacherDashboard, StudentDashboard } from './components/lazy';
 import { LoginScreen } from './components/LoginScreen';
 
 export default function App() {

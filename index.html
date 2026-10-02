@@ -12,21 +12,23 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
-  }
-}
-</script>
+<!--
+  Bu yerda ilgari `importmap` turardi va React'ni esm.sh dan yuklashni
+  ko'rsatardi. U o'lik kod edi: Vite React'ni bundle ichiga qo'shadi,
+  chiqgan faylda "react" degan yalang'och import umuman qolmaydi. Ya'ni
+  karta hech qachon ishlatilmas, lekin har sahifada brauzerga yuborilar va
+  o'qiyotgan odamni chalg'itardi.
+-->
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
-    <!-- Google Identity Services skripti oxirida -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!--
+      Google Identity Services skripti ham olib tashlandi: kodda
+      `google.accounts` yoki `window.google` hech qayerda ishlatilmaydi.
+      Kirish Firebase Auth orqali (signInWithPopup / signInWithRedirect).
+      Ya'ni bu har ochilishda uchinchi tomon domeniga ortiqcha so'rov edi.
+    -->
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>

@@ -2,11 +2,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, DictationTask, Submission, ViewType } from '../types';
 import { DB } from '../services/dbService';
-import { DictationWorker } from './DictationWorker';
-import { ResultView } from './ResultView';
-import { ResourceLibrary } from './ResourceLibrary';
-import { GamesHub } from './GamesHub';
-import { BadgesModal } from './BadgesModal';
+import {
+  DictationWorker,
+  ResultView,
+  ResourceLibrary,
+  GamesHub,
+  BadgesModal,
+} from './lazy';
 import { BadgesShowcase } from './BadgesShowcase';
 import { evaluateBadges, BadgeDefinition, calculateUserRank, verifiedGradeOf, submissionsSignature } from '../services/badgeService';
 import confetti from 'canvas-confetti';

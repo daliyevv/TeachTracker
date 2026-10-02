@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Submission, AnalysisResult } from '../types';
 import { DB } from '../services/dbService';
-import { ResultView } from './ResultView';
+import { ResultView } from './lazy';
 import { MAX_GRADE, clampGrade, cloneResult } from '../services/gradingService';
 
 interface Props { sub: Submission; onClose: () => void; }

@@ -1,0 +1,60 @@
+#
+# Har bir PR va `main` ga push'da tekshiruv.
+#
+# Nega kerak: loyihada 98 ta test bor, lekin ular faqat kimdir qo'lda ishga
+# tushirganda ishlardi. Ya'ni qoidalardagi yoki bahodagi regressiya PR
+# ko'rib chiqilgandan KEYIN, allaqachon ishlab chiqarishda bilinardi.
+#
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Bir branch'da yangi push bo'lsa, eski ishni bekor qilamiz — bekorga
+# navbat kutib turmasligi uchun.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, testlar va build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Firestore va Storage emulyatorlari JVM da ishlaydi.
+      - name: Java (Firebase emulyatorlari uchun)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Paketlarni o'rnatish
+        run: npm ci
+
+      - name: Turlarni tekshirish
+        run: npm run lint
+
+      - name: Unit testlar
+        run: npm run test:unit
+
+      # DIQQAT: Storage qoidalar ishlovchisi JAVA_TOOL_OPTIONS o'rnatilgan
+      # bo'lsa JIMGINA ishdan chiqadi va hamma narsaga ruxsat beradi — ya'ni
+      # testlar bo'sh o'tib ketadi. `npm run test:rules` skripti shu
+      # o'zgaruvchini `env -u` bilan olib tashlab ishga tushiradi.
+      - name: Firestore va Storage qoidalari testlari
+        run: npm run test:rules
+
+      - name: Frontend build
+        run: npx vite build

@@ -2,13 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import { User, DictationTask, Submission, ViewType } from '../types';
 import { DB } from '../services/dbService';
-import { TaskCreator } from './TaskCreator';
-import { SubmissionReviewer } from './SubmissionReviewer';
-import { ManualChecker } from './ManualChecker';
-import { AIAssistant } from './AIAssistant';
-import { ResourceLibrary } from './ResourceLibrary';
-import { GamesHub } from './GamesHub';
-import Pricing from './Pricing';
+import {
+  TaskCreator,
+  SubmissionReviewer,
+  ManualChecker,
+  AIAssistant,
+  ResourceLibrary,
+  GamesHub,
+  Pricing,
+} from './lazy';
 
 interface Props {
   user: User;

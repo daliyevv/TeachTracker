@@ -3,8 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AnalysisResult, SubmissionFile } from '../types';
 import { speakText, AudioController } from '../services/ttsService';
 import confetti from 'canvas-confetti';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { CodeBlock } from './CodeBlock';
 import { FileCode, Image as ImageIcon, MessageSquare, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const EMPTY_IMAGES: string[] = [];
@@ -534,14 +533,13 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
                 }
 
                 return (
-                  <SyntaxHighlighter 
-                    language={currentFile.language || 'text'} 
-                    style={vscDarkPlus}
+                  <CodeBlock
+                    language={currentFile.language || 'text'}
                     customStyle={{ margin: 0, padding: '2rem', fontSize: '14px', lineHeight: '1.6' }}
                     showLineNumbers
                   >
                     {currentFile.content || ''}
-                  </SyntaxHighlighter>
+                  </CodeBlock>
                 );
               })()}
             </div>
