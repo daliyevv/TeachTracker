@@ -28,9 +28,11 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
             const reader = new FileReader();
             reader.onloadend = () => {
               const base64 = reader.result as string;
-              const newPreviews = [...previews, base64];
-              setPreviews(newPreviews);
-              onImagesSelect(newPreviews);
+              setPreviews(prev => {
+                const newPreviews = [...prev, base64];
+                onImagesSelect(newPreviews);
+                return newPreviews;
+              });
             };
             reader.readAsDataURL(blob);
           }
@@ -40,7 +42,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [isLoading, isCamera, previews, onImagesSelect]);
+  }, [isLoading, isCamera, onImagesSelect]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -116,19 +118,21 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
         {previews.map((p, i) => (
           <div key={i} className="relative rounded-2xl overflow-hidden border-2 border-white shadow-md bg-white group aspect-square">
-            <img src={p} className="w-full h-full object-cover" />
+            <img src={p} className="w-full h-full object-cover" alt={`Sahifa ${i + 1}`} />
             {!isLoading && (
               <button 
                 onClick={() => removeImage(i)}
-                className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 p-2 bg-rose-600/90 hover:bg-rose-600 text-white rounded-xl shadow-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[36px] min-w-[36px] flex items-center justify-center"
+                title="Rasmni o'chirish"
+                aria-label="Rasmni o'chirish"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             )}
-            <div className="absolute bottom-2 left-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded-md backdrop-blur-sm">
+            <div className="absolute bottom-2 left-2 bg-slate-900/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs">
               {i + 1}-bet
             </div>
           </div>
@@ -136,13 +140,19 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
         
         {!isLoading && !isCamera && (
           <>
-            <button onClick={() => inputRef.current?.click()} className="aspect-square border-2 border-dashed border-slate-200 rounded-2xl bg-white hover:bg-indigo-50 hover:border-indigo-200 transition-all flex flex-col items-center justify-center p-4">
+            <button 
+              onClick={() => inputRef.current?.click()} 
+              className="aspect-square border-2 border-dashed border-slate-200 rounded-2xl bg-white hover:bg-indigo-50 hover:border-indigo-300 transition-all flex flex-col items-center justify-center p-3 sm:p-4 min-h-[48px]"
+            >
               <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-2">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
               </div>
               <span className="font-bold text-slate-700 text-xs">Fayl qo'shish</span>
             </button>
-            <button onClick={startCamera} className="aspect-square border-2 border-dashed border-slate-200 rounded-2xl bg-white hover:bg-violet-50 hover:border-violet-200 transition-all flex flex-col items-center justify-center p-4">
+            <button 
+              onClick={startCamera} 
+              className="aspect-square border-2 border-dashed border-slate-200 rounded-2xl bg-white hover:bg-violet-50 hover:border-violet-300 transition-all flex flex-col items-center justify-center p-3 sm:p-4 min-h-[48px]"
+            >
               <div className="w-10 h-10 bg-violet-100 text-violet-600 rounded-xl flex items-center justify-center mb-2">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
               </div>

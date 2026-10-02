@@ -1,116 +1,76 @@
-
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { initializeFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  getFirestore, 
+  doc, 
+  getDocFromServer,
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAnalytics } from "firebase/analytics";
+import firebaseConfig from "../firebase-applet-config.json";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCSJhZaNha-3afKYtw7aN3KN9HMA79K1H8",
-  authDomain: "teachtrackernew.firebaseapp.com",
-  projectId: "teachtrackernew",
-  storageBucket: "teachtrackernew.firebasestorage.app",
-  messagingSenderId: "838419613050",
-  appId: "1:838419613050:web:7914825b7a61b73d8a82c3",
-  measurementId: "G-D4EDJ1L86C"
-};
-
-// Agar API kaliti o'zgargan bo'lsa, suspension-ni o'chirib tashlaymiz
+// Tozalash: eski sessiyalardan qolgan cheklovlarni tozalaymiz
 if (typeof window !== 'undefined') {
-  const lastKey = localStorage.getItem('firebase_last_key');
-  if (lastKey && lastKey !== firebaseConfig.apiKey) {
-    console.log("Firebase API key changed, clearing suspension state.");
-    localStorage.removeItem('firebase_suspended');
-    sessionStorage.removeItem('reloaded_after_suspension');
-  }
-  localStorage.setItem('firebase_last_key', firebaseConfig.apiKey);
+  localStorage.removeItem('firebase_suspended');
+  sessionStorage.removeItem('reloaded_after_suspension');
 }
-
-// Agar API kaliti to'xtatilgan bo'lsa, Firebase-ni umuman ishlatmaymiz
-const isSuspended = typeof window !== 'undefined' && localStorage.getItem('firebase_suspended') === 'true';
 
 export const isFirebaseConfigured = !!(
-  firebaseConfig.apiKey && 
-  firebaseConfig.authDomain && 
-  firebaseConfig.projectId &&
-  !isSuspended
+  firebaseConfig.apiKey &&
+  firebaseConfig.projectId
 );
 
-let app: any = null;
-let auth: any = null;
-let db: any = null;
-let storage: any = null;
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-if (isFirebaseConfigured) {
+/* CRITICAL: Passing firestoreDatabaseId is mandatory for provisioned database instances.
+   We configure auto-detect long polling and persistent local cache for high network resilience in iframe/preview environments. */
+let dbInstance;
+try {
+  dbInstance = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  }, firebaseConfig.firestoreDatabaseId);
+} catch {
+  dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+
+export const db = dbInstance;
+export const auth = getAuth(app);
+export const storage = getStorage(app);
+export const googleProvider = new GoogleAuthProvider();
+
+// Connection testing as mandated by skill guidelines
+export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    
-    // Firestore ulanish muammolarini bartaraf etish uchun long-polling yoqiladi
-    db = initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-    });
-    
-    // Offline rejimda ishlashni yaxshilash uchun persistence yoqiladi
-    enableIndexedDbPersistence(db).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn("Persistence failed: Multiple tabs open");
-      } else if (err.code === 'unimplemented') {
-        console.warn("Persistence failed: Browser doesn't support it");
-      }
-    });
-
-    storage = getStorage(app);
-    
-    // Analytics faqat API kaliti ishlayotgan bo'lsa yoqiladi
-    if (firebaseConfig.measurementId) {
-      try {
-        getAnalytics(app);
-      } catch (e) {
-        console.warn("Firebase Analytics initialization failed:", e);
-      }
-    }
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connection test passed.");
+    return true;
   } catch (error: any) {
-    console.error("Firebase initialization error:", error);
-    const errorMsg = error.message || "";
-    if (errorMsg.includes('suspended') || errorMsg.includes('permission-denied') || errorMsg.includes('403')) {
-      console.warn("Firebase API key is suspended. Switching to local mode.");
-      if (typeof window !== 'undefined') localStorage.setItem('firebase_suspended', 'true');
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Please check your Firebase configuration or internet connection.");
+      return false;
     }
+    if (error?.code === 'unavailable') {
+      console.log("Firestore connecting in background (offline persistence active).");
+      return true;
+    }
+    // If doc does not exist, connection is still alive
+    if (error?.code === 'not-found' || error?.code === 'permission-denied') {
+      console.log("Firestore server reachable (doc or permission checked).");
+      return true;
+    }
+    console.warn("Firestore connection check info:", error?.message || error);
+    return true;
   }
 }
 
-// Global error listener to catch Firebase async errors early
+// Test connection after initial frame renders so WebChannel socket has established
 if (typeof window !== 'undefined') {
-  const handleFirebaseError = (msg: string) => {
-    if (
-      msg.includes('suspended') || 
-      msg.includes('permission-denied') || 
-      msg.includes('installations/request-failed') ||
-      msg.includes('403') ||
-      msg.includes('PERMISSION_DENIED')
-    ) {
-      console.warn("Detected Firebase suspension, marking for local mode and reloading...");
-      localStorage.setItem('firebase_suspended', 'true');
-      // Faqat bir marta reload qilamiz
-      if (!sessionStorage.getItem('reloaded_after_suspension')) {
-        sessionStorage.setItem('reloaded_after_suspension', 'true');
-        window.location.reload();
-      }
-    }
-  };
-
-  // Firebase SDK ichidagi console.error xabarlarini ham tutamiz
-  const originalConsoleError = console.error;
-  console.error = (...args: any[]) => {
-    const msg = args.join(' ');
-    handleFirebaseError(msg);
-    originalConsoleError.apply(console, args);
-  };
-
-  window.addEventListener('error', (event) => handleFirebaseError(event.message || ""));
-  window.addEventListener('unhandledrejection', (event) => handleFirebaseError(event.reason?.message || ""));
+  setTimeout(() => {
+    testFirestoreConnection();
+  }, 1500);
 }
 
-export { app, auth, db, storage };
-export const googleProvider = new GoogleAuthProvider();
+export { app };

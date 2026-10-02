@@ -26,25 +26,25 @@ export const ResourceLibrary: React.FC = () => {
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-3xl font-black text-slate-900">Kutubxona</h1>
-          <p className="text-slate-500 font-medium">Barcha darsliklar va metodik materiallar bir joyda</p>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Kutubxona</h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">Barcha darsliklar va metodik materiallar bir joyda</p>
         </div>
         
-        <div className="flex items-center space-x-3">
-          <div className="relative">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto">
+          <div className="relative flex-grow sm:flex-grow-0">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input 
               type="text"
               placeholder="Qidirish..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 pr-4 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-indigo-600 transition-all w-64 font-medium"
+              className="pl-12 pr-4 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-indigo-600 transition-all w-full sm:w-64 font-medium text-sm sm:text-base outline-none min-h-[44px]"
             />
           </div>
           <select 
             value={selectedGrade}
             onChange={(e) => setSelectedGrade(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            className="px-4 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-indigo-600 transition-all font-bold text-slate-700"
+            className="px-4 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-indigo-600 transition-all font-bold text-slate-700 text-sm sm:text-base outline-none min-h-[44px]"
           >
             <option value="all">Barcha sinflar</option>
             {[1,2,3,4,5,6,7,8,9,10,11].map(g => (

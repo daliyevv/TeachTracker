@@ -30,38 +30,38 @@ export const GamesHub: React.FC = () => {
   };
 
   return (
-    <div className="space-y-12">
-      <div className="flex items-center justify-between">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-black text-slate-900">O'yinlar</h1>
-          <p className="text-slate-500 font-medium">Darsni qiziqarli va interaktiv qiling</p>
+    <div className="space-y-8 sm:space-y-12">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1 sm:space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">O'yinlar</h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">Darsni qiziqarli va interaktiv qiling</p>
         </div>
-        <div className="flex items-center space-x-4 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-          <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
+        <div className="flex items-center space-x-3 sm:space-x-4 bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-100 shadow-xs self-start sm:self-auto">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
             <Trophy className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Reyting</p>
-            <p className="text-lg font-black text-slate-900">1,240 ball</p>
+            <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Reyting</p>
+            <p className="text-base sm:text-lg font-black text-slate-900">1,240 ball</p>
           </div>
         </div>
       </div>
 
       {!activeGame ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
           {GAMES.map((game) => (
             <button
               key={game.id}
               onClick={() => setActiveGame(game.id)}
-              className="group bg-white p-8 rounded-[2.5rem] border border-slate-100 text-left hover:shadow-2xl hover:shadow-slate-200 transition-all flex items-center space-x-6"
+              className="group bg-white p-5 sm:p-8 rounded-3xl sm:rounded-[2.5rem] border border-slate-100 text-left hover:shadow-xl hover:shadow-slate-200/50 transition-all flex items-center space-x-4 sm:space-x-6 min-h-[48px]"
             >
-              <div className={`w-20 h-20 ${game.color} rounded-[2rem] flex items-center justify-center shadow-2xl ${game.shadow} group-hover:scale-110 transition-transform`}>
-                <game.icon className="w-10 h-10 text-white" />
+              <div className={`w-14 h-14 sm:w-20 sm:h-20 ${game.color} rounded-2xl sm:rounded-[2rem] flex items-center justify-center shadow-lg ${game.shadow} group-hover:scale-105 transition-transform shrink-0`}>
+                <game.icon className="w-7 h-7 sm:w-10 sm:h-10 text-white" />
               </div>
-              <div className="flex-grow space-y-2">
-                <h3 className="text-xl font-black text-slate-900">{game.title}</h3>
-                <p className="text-sm text-slate-500 font-medium leading-relaxed">{game.description}</p>
-                <div className="flex items-center space-x-2 text-xs font-black text-indigo-600 pt-2">
+              <div className="flex-grow space-y-1 sm:space-y-2">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900">{game.title}</h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-medium leading-relaxed">{game.description}</p>
+                <div className="flex items-center space-x-1.5 text-xs font-black text-indigo-600 pt-1">
                   <span>O'ynash</span>
                   <Play className="w-3 h-3 fill-current" />
                 </div>
@@ -70,23 +70,23 @@ export const GamesHub: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-white p-12 rounded-[3rem] border border-slate-100 shadow-2xl space-y-12 relative overflow-hidden">
+        <div className="bg-white p-6 sm:p-10 md:p-12 rounded-3xl sm:rounded-[3rem] border border-slate-100 shadow-xl space-y-8 sm:space-y-12 relative overflow-hidden">
           <button 
             onClick={() => setActiveGame(null)}
-            className="absolute top-8 left-8 text-xs font-black text-slate-400 hover:text-slate-900 uppercase tracking-widest flex items-center space-x-2"
+            className="text-xs font-black text-slate-500 hover:text-slate-900 uppercase tracking-widest flex items-center space-x-2 py-2 px-3 bg-slate-50 rounded-xl min-h-[40px]"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
             <span>Orqaga</span>
           </button>
 
           {activeGame === 'wheel' && (
-            <div className="flex flex-col items-center space-y-12">
-              <h2 className="text-3xl font-black text-slate-900">Omad Charxi</h2>
+            <div className="flex flex-col items-center space-y-8 sm:space-y-12">
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Omad Charxi</h2>
               
-              <div className="relative w-80 h-80">
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10 w-8 h-12 bg-rose-600 clip-path-triangle shadow-lg"></div>
+              <div className="relative w-64 h-64 sm:w-80 sm:h-80 mx-auto">
+                <div className="absolute -top-3 sm:-top-4 left-1/2 -translate-x-1/2 z-10 w-6 sm:w-8 h-8 sm:h-12 bg-rose-600 clip-path-triangle shadow-lg"></div>
                 <motion.div 
-                  className="w-full h-full rounded-full border-8 border-slate-900 relative overflow-hidden shadow-2xl"
+                  className="w-full h-full rounded-full border-4 sm:border-8 border-slate-900 relative overflow-hidden shadow-2xl"
                   animate={{ rotate: rotation }}
                   transition={{ duration: 3, ease: "easeOut" }}
                   style={{ 
@@ -96,16 +96,16 @@ export const GamesHub: React.FC = () => {
                   {[1,2,3,4,5,6].map((i) => (
                     <div 
                       key={i}
-                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-sm"
-                      style={{ transform: `translate(-50%, -50%) rotate(${i * 60 - 30}deg) translateY(-100px)` }}
+                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm"
+                      style={{ transform: `translate(-50%, -50%) rotate(${i * 60 - 30}deg) translateY(-80px)` }}
                     >
                       {['Aziz', 'Sardor', 'Malika', 'Jasur', 'Lola', 'Bekzod'][i-1]}
                     </div>
                   ))}
                 </motion.div>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-16 h-16 bg-white rounded-full border-4 border-slate-900 shadow-xl z-20 flex items-center justify-center">
-                    <div className="w-4 h-4 bg-slate-900 rounded-full"></div>
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-4 border-slate-900 shadow-xl z-20 flex items-center justify-center">
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-slate-900 rounded-full"></div>
                   </div>
                 </div>
               </div>
@@ -114,7 +114,7 @@ export const GamesHub: React.FC = () => {
                 <button 
                   onClick={spinWheel}
                   disabled={spinning}
-                  className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50"
+                  className="px-8 sm:px-12 py-3.5 sm:py-4 bg-indigo-600 text-white rounded-2xl font-black text-base sm:text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 min-h-[48px]"
                 >
                   {spinning ? 'Aylanmoqda...' : 'Aylantirish'}
                 </button>

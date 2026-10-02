@@ -35,51 +35,65 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] overflow-y-auto">
-      <div className="min-h-screen flex flex-col p-4 sm:p-10">
-        <div className="max-w-6xl mx-auto w-full bg-white rounded-[3.5rem] shadow-2xl overflow-hidden flex flex-col flex-grow">
-          <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-            <div>
-              <h3 className="text-2xl font-black text-slate-900">Tekshiruv paneli</h3>
-              <p className="text-slate-500 font-medium">Teach Tracker natijalarini tahrirlang va tasdiqlang.</p>
-            </div>
-            <div className="flex space-x-2 bg-white p-2 rounded-2xl border border-slate-200">
+      <div className="min-h-screen flex flex-col p-2 sm:p-6 md:p-10">
+        <div className="max-w-6xl mx-auto w-full bg-white rounded-3xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col flex-grow">
+          <div className="p-4 sm:p-8 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50">
+            <div className="flex items-center justify-between w-full sm:w-auto">
+              <div>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900">Tekshiruv paneli</h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-medium">Teach Tracker natijalarini tahrirlang va tasdiqlang.</p>
+              </div>
               <button 
-                onClick={() => setActiveTab('preview')}
-                className={`px-6 py-2 rounded-xl font-bold transition-all ${activeTab === 'preview' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'}`}
+                onClick={onClose} 
+                className="sm:hidden p-2 bg-white rounded-xl text-slate-400 hover:text-rose-500 transition-colors shadow-xs min-h-[40px] min-w-[40px] flex items-center justify-center"
               >
-                Ko'rib chiqish
-              </button>
-              <button 
-                onClick={() => setActiveTab('edit')}
-                className={`px-6 py-2 rounded-xl font-bold transition-all ${activeTab === 'edit' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'}`}
-              >
-                Tahrirlash
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <button onClick={onClose} className="p-4 bg-white rounded-full text-slate-400 hover:text-rose-500 transition-colors shadow-sm">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+
+            <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+              <div className="flex space-x-1 sm:space-x-2 bg-white p-1.5 rounded-2xl border border-slate-200">
+                <button 
+                  onClick={() => setActiveTab('preview')}
+                  className={`px-4 sm:px-6 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all min-h-[40px] ${activeTab === 'preview' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Ko'rib chiqish
+                </button>
+                <button 
+                  onClick={() => setActiveTab('edit')}
+                  className={`px-4 sm:px-6 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all min-h-[40px] ${activeTab === 'edit' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Tahrirlash
+                </button>
+              </div>
+              <button 
+                onClick={onClose} 
+                className="hidden sm:flex p-3 bg-white rounded-full text-slate-400 hover:text-rose-500 transition-colors shadow-xs min-h-[44px] min-w-[44px] items-center justify-center"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
           </div>
 
-          <div className="flex-grow overflow-y-auto p-8">
+          <div className="flex-grow overflow-y-auto p-4 sm:p-8">
             {activeTab === 'preview' ? (
-              <ResultView result={editedResult} images={sub.images} />
+              <ResultView result={editedResult} images={sub.images} files={sub.files} onUpdateResult={setEditedResult} />
             ) : (
-              <div className="space-y-10 animate-in fade-in duration-300">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-4">
-                    <label className="text-sm font-black text-slate-400 uppercase tracking-widest">Umumiy baho (0-10)</label>
+              <div className="space-y-8 sm:space-y-10 animate-in fade-in duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
+                  <div className="space-y-2 sm:space-y-4">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Umumiy baho (0-10)</label>
                     <input 
                       type="number" 
                       min="0" 
                       max="10" 
                       value={editedResult.grade} 
                       onChange={e => setEditedResult({...editedResult, grade: Number(e.target.value)})} 
-                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-2xl text-indigo-600" 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-2xl text-indigo-600 outline-none focus:border-indigo-600 transition-colors" 
                     />
                   </div>
-                  <div className="space-y-4">
-                    <label className="text-sm font-black text-slate-400 uppercase tracking-widest">O'qituvchi fikri</label>
+                  <div className="space-y-2 sm:space-y-4">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">O'qituvchi fikri</label>
                     <textarea 
                       rows={3} 
                       value={editedResult.feedback} 
@@ -89,22 +103,22 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
                   </div>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-6">
                   <div className="flex items-center justify-between">
                     <h4 className="font-black text-slate-800 uppercase tracking-wider text-sm">Xatolar ro'yxati:</h4>
-                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{mistakes.length} ta xato</span>
+                    <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{mistakes.length} ta xato</span>
                   </div>
                   
                   <div className="space-y-4">
                     {mistakes.map((m, i) => (
-                      <div key={i} className="group relative p-6 bg-slate-50 rounded-3xl border border-slate-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 transition-all hover:bg-white hover:shadow-xl hover:shadow-slate-100">
-                         {/* O'chirish tugmasi */}
+                      <div key={i} className="group relative p-4 sm:p-6 bg-slate-50 rounded-2xl sm:rounded-3xl border border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 transition-all hover:bg-white hover:shadow-lg">
+                         {/* O'chirish tugmasi - Mobile-friendly */}
                          <button 
                            onClick={() => deleteMistake(i)}
-                           className="absolute -top-2 -right-2 w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-110 z-10"
+                           className="absolute -top-2 -right-2 w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-10"
                            title="Ushbu xatoni ro'yxatdan o'chirish"
                          >
-                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
                          </button>
 
                          <div className="space-y-1">

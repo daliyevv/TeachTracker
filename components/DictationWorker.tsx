@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, DictationTask, Submission, AnalysisResult, SubmissionFile } from '../types';
 import { Uploader } from './Uploader';
-import { detectPaperBounds, analyzeDictation, analyzeAssignment } from '../services/geminiService';
+import { analyzeDictation, analyzeAssignment } from '../services/geminiService';
 import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
 import { dictateText, AudioController } from '../services/ttsService';
+import { evaluateBadges } from '../services/badgeService';
 import { FileCode, Upload, X, CheckCircle2, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
 
 interface Props { 
@@ -30,7 +31,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isCoding = task.type === 'coding';
-  const isDictation = task.type === 'dictation';
+  const isDictation = !task.type || task.type === 'dictation';
 
   useEffect(() => {
     return () => {
@@ -92,6 +93,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       const textExtensions = ['py', 'js', 'ts', 'html', 'css', 'java', 'cpp', 'c', 'php', 'rb', 'go', 'rs', 'txt', 'md', 'json', 'ipynb'];
       const isText = textExtensions.includes(extension) || file.type.startsWith('text/');
+      const isImg = file.type?.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'].includes(extension);
 
       reader.onload = (event) => {
         const result = event.target?.result as string;
@@ -117,8 +119,17 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
             mimeType: file.type || 'text/plain',
             language: languageMap[extension] || 'text'
           }]);
+        } else if (isImg) {
+          // Rasmni imgs ro'yxatiga ham qo'shamiz, natijada tahlil va ko'rsatish to'g'ri ishlaydi
+          setImgs(prev => [...prev, result]);
+          const base64 = result.split(',')[1] || result;
+          setFiles(prev => [...prev, {
+            name: file.name,
+            data: base64,
+            mimeType: file.type || 'image/jpeg'
+          }]);
         } else {
-          const base64 = result.split(',')[1];
+          const base64 = result.split(',')[1] || result;
           setFiles(prev => [...prev, {
             name: file.name,
             data: base64,
@@ -139,28 +150,32 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const resizeImage = (base64: string, maxSide = 1600): Promise<string> => {
+  const resizeImage = (base64: string, maxSide = 1200): Promise<string> => {
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(base64), 10000);
+      const timeout = setTimeout(() => resolve(base64), 5000);
       const img = new Image();
       img.onload = () => {
         clearTimeout(timeout);
         let { width, height } = img;
         if (width > maxSide || height > maxSide) {
           if (width > height) {
-            height = (height / width) * maxSide;
+            height = Math.round((height / width) * maxSide);
             width = maxSide;
           } else {
-            width = (width / height) * maxSide;
+            width = Math.round((width / height) * maxSide);
             height = maxSide;
           }
         }
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        } else {
+          resolve(base64);
+        }
       };
       img.onerror = () => {
         clearTimeout(timeout);
@@ -171,44 +186,8 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
   };
 
   const processImage = async (img: string): Promise<string> => {
-    const optimized = await resizeImage(img);
-    try {
-      // detectPaperBounds uchun ham timeout (10 soniya)
-      const boundsPromise = detectPaperBounds(optimized);
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
-      const bounds = await Promise.race([boundsPromise, timeoutPromise]);
-      
-      if (!bounds) return optimized;
-
-      return new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve(optimized), 10000);
-        const i = new Image();
-        i.crossOrigin = "anonymous";
-        i.onload = () => {
-          clearTimeout(timeout);
-          const canvas = document.createElement('canvas');
-          const [ymin, xmin, ymax, xmax] = bounds;
-          const w = Math.max(1, (xmax - xmin) / 1000 * i.width);
-          const h = Math.max(1, (ymax - ymin) / 1000 * i.height);
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(i, (xmin/1000)*i.width, (ymin/1000)*i.height, w, h, 0, 0, w, h);
-            resolve(canvas.toDataURL('image/jpeg', 0.9));
-          } else {
-            resolve(optimized);
-          }
-        };
-        i.onerror = () => {
-          clearTimeout(timeout);
-          resolve(optimized);
-        };
-        i.src = optimized;
-      });
-    } catch (e) {
-      console.error("Process image error:", e);
-      return optimized;
-    }
+    // Rasmni qirqmasdan, optimal o'lchamga keltiramiz - bu koordinatalar 100% so'z ustiga tushishini ta'minlaydi
+    return await resizeImage(img, 1400);
   };
 
   const handleSubmit = async () => {
@@ -219,47 +198,64 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
       const imageUrls: string[] = [];
       const finalProcessedImages: string[] = [];
       
-      if (imgs.length > 0) {
-        for (let i = 0; i < imgs.length; i++) {
+      // imgs va files ichidagi barcha rasmlarni jamlaymiz
+      const allImageSources: string[] = [...imgs];
+      files.forEach(f => {
+        if (f.mimeType?.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name)) {
+          const src = f.data ? (f.data.startsWith('data:') ? f.data : `data:${f.mimeType || 'image/jpeg'};base64,${f.data}`) : f.content;
+          if (src && !allImageSources.includes(src)) {
+            allImageSources.push(src);
+          }
+        }
+      });
+
+      if (allImageSources.length > 0) {
+        for (let i = 0; i < allImageSources.length; i++) {
           setMsg(`${i + 1}-bet tayyorlanmoqda...`);
-          const processed = await processImage(imgs[i]);
+          const processed = await processImage(allImageSources[i]);
           finalProcessedImages.push(processed);
 
-          setMsg(`${i + 1}-bet yuklanmoqda...`);
+          setMsg(`${i + 1}-bet saqlanmoqda...`);
           const url = await DB.uploadImage(processed, `submissions/${user.id}/${Date.now()}_${i}.jpg`);
           imageUrls.push(url);
         }
       }
 
-      if (isDictation) {
-        setMsg('Xatolar tahlil qilinmoqda...');
+      const nonImageFiles = files.filter(f => !f.mimeType?.startsWith('image/') && !/\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name));
+
+      if (isDictation || (finalProcessedImages.length > 0 && nonImageFiles.length === 0)) {
+        setMsg("Sun'iy intellekt xatolarni tahlil qilmoqda...");
         ttResult = await analyzeDictation(finalProcessedImages, task.content);
       } else {
-        setMsg('Vazifa tahlil qilinmoqda...');
+        setMsg("Sun'iy intellekt topshiriqni tahlil qilmoqda...");
         ttResult = await analyzeAssignment(files, task.content);
       }
       
       const submission: Omit<Submission, "id"> = {
         taskId: task.id,
         studentId: user.id,
-        images: imageUrls.length > 0 ? imageUrls : undefined,
+        images: imageUrls.length > 0 ? imageUrls : (allImageSources.length > 0 ? allImageSources : undefined),
         files: files.length > 0 ? files : undefined,
         ttResult: ttResult,
         status: 'pending',
         submittedAt: Date.now()
       };
 
+      setMsg("Natijalar saqlanmoqda...");
       await DB.addSubmission(submission);
       
-      if (ttResult.grade === 5 && onUserUpdate) {
-        const currentBadges = user.badges || [];
-        const newBadges = [...new Set([...currentBadges, 'imlo_ustasi', 'besh_yulduz'])];
-        if (newBadges.length > currentBadges.length) {
-          onUserUpdate({ ...user, badges: newBadges });
+      try {
+        const studentSubs = await DB.getSubmissions(user.id);
+        const { updatedUser, newlyUnlockedBadges } = evaluateBadges(studentSubs, user);
+        if (newlyUnlockedBadges.length > 0 || updatedUser.points !== user.points) {
+          await DB.updateUser(user.id, { badges: updatedUser.badges, points: updatedUser.points });
+          onUserUpdate?.(updatedUser);
         }
+      } catch (badgeErr) {
+        console.warn("Badge evaluation error:", badgeErr);
       }
       
-      setCroppedImgs(finalProcessedImages);
+      setCroppedImgs(finalProcessedImages.length > 0 ? finalProcessedImages : allImageSources);
       setAnalysisResult(ttResult);
     } catch (e: any) {
       console.error("Submission error:", e);
@@ -298,7 +294,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
           </div>
 
           <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden">
-             <ResultView result={analysisResult} images={croppedImgs} files={files} />
+             <ResultView result={analysisResult} images={croppedImgs} files={files} onUpdateResult={setAnalysisResult} />
           </div>
 
           <div className="flex justify-center pb-10">
@@ -311,21 +307,24 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
 
   return (
     <div className="fixed inset-0 bg-slate-50 z-[150] overflow-y-auto animate-in slide-in-from-right duration-500">
-      <div className="max-w-4xl mx-auto p-6 sm:p-10 space-y-10">
-        <div className="flex items-center justify-between bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-          <button onClick={onCancel} className="group flex items-center space-x-3 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black hover:bg-rose-50 hover:text-rose-600 transition-all">
-            <svg className="w-6 h-6 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+      <div className="max-w-4xl mx-auto p-3 sm:p-6 md:p-10 space-y-6 sm:space-y-8">
+        <div className="flex items-center justify-between bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xs border border-slate-100">
+          <button 
+            onClick={onCancel} 
+            className="group flex items-center space-x-2 sm:space-x-3 px-4 sm:px-6 py-2.5 sm:py-3 bg-slate-100 text-slate-700 rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm hover:bg-rose-50 hover:text-rose-600 transition-all min-h-[44px]"
+          >
+            <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
             <span>Bekor qilish</span>
           </button>
           <div className="text-right">
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">{task.title}</h2>
-            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">
+            <h2 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight">{task.title}</h2>
+            <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-widest">
               {isDictation ? 'Diktantni yuklash' : isCoding ? 'Kod fayllarini yuklash' : 'Vazifani yuklash'}
             </p>
           </div>
         </div>
 
-        <div className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 shadow-2xl space-y-10">
+        <div className="bg-white p-5 sm:p-8 md:p-10 rounded-3xl sm:rounded-[2.5rem] border border-slate-100 shadow-xl space-y-8">
            <div className="space-y-6">
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                <div className="flex items-center space-x-3">
@@ -336,20 +335,20 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
                </div>
                
                {isDictation && (
-                 <div className="flex flex-col space-y-4">
-                   <div className="flex items-center space-x-3">
+                 <div className="flex flex-col space-y-3">
+                   <div className="flex items-center space-x-2 sm:space-x-3">
                      <button 
                        onClick={handleDictate}
-                       className={`flex items-center space-x-3 px-6 py-3 rounded-2xl font-black transition-all shadow-lg ${audioController ? 'bg-rose-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                       className={`flex-1 sm:flex-initial flex items-center justify-center space-x-2 sm:space-x-3 px-4 sm:px-6 py-3 rounded-2xl font-black text-xs sm:text-sm transition-all shadow-md min-h-[44px] ${audioController ? 'bg-rose-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                      >
                        {audioController ? (
                          <>
-                           <Square className="w-6 h-6" />
+                           <Square className="w-5 h-5" />
                            <span>To'xtatish</span>
                          </>
                        ) : (
                          <>
-                           <Volume2 className="w-6 h-6" />
+                           <Volume2 className="w-5 h-5" />
                            <span>Teach Tracker Diktatori</span>
                          </>
                        )}
@@ -358,14 +357,14 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
                      {audioController && (
                        <button 
                          onClick={togglePause}
-                         className="p-3 bg-white border-2 border-slate-100 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+                         className="p-3 bg-white border-2 border-slate-100 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-xs min-h-[44px] min-w-[44px] flex items-center justify-center"
                        >
-                         {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                         {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
                        </button>
                      )}
                    </div>
 
-                   <div className="flex flex-col space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                   <div className="flex flex-col space-y-2 bg-slate-50 p-3 sm:p-4 rounded-2xl border border-slate-100">
                      <div className="flex justify-between items-center">
                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">O'qish tezligi</span>
                        <span className="text-xs font-black text-indigo-600">{playbackSpeed.toFixed(1)}x</span>
@@ -374,14 +373,14 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
                        type="range" min="0.5" max="2.0" step="0.1"
                        value={playbackSpeed}
                        onChange={e => handleSpeedChange(parseFloat(e.target.value))}
-                       className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                      />
                    </div>
                  </div>
                )}
              </div>
              
-             <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 font-serif italic text-xl text-slate-700 leading-relaxed shadow-inner">
+             <div className="p-5 sm:p-8 bg-slate-50 rounded-2xl sm:rounded-3xl border border-slate-100 font-serif italic text-base sm:text-xl text-slate-700 leading-relaxed shadow-inner">
                "{task.content}"
              </div>
            </div>
@@ -464,10 +463,10 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
              <div className="pt-6 border-t border-slate-100 flex flex-col items-center">
                <button 
                  onClick={handleSubmit}
-                 className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-2xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all flex items-center justify-center space-x-4"
+                 className="w-full py-4 sm:py-5 bg-indigo-600 text-white rounded-2xl sm:rounded-3xl font-black text-lg sm:text-xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center space-x-3 min-h-[48px]"
                >
                  <span>Tekshirishga yuborish</span>
-                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                 <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 5l7 7m0 0l-7 7m7-7H3" /></svg>
                </button>
              </div>
            )}
