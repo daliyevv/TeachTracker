@@ -155,6 +155,13 @@ const LocalDB = {
     } catch (e) {
       console.warn("Local storage write failed:", e);
     }
+  },
+  removeItem: (key: string, id: string) => {
+    try {
+      localStorage.removeItem(`${key}_${id}`);
+    } catch (e) {
+      console.warn("Local storage remove failed:", e);
+    }
   }
 };
 
@@ -188,6 +195,10 @@ export const DB = {
   },
 
   setUser: async (user: User) => {
+    // Oldingi mahalliy nusxani eslab qolamiz: agar masofaviy yozuv rad etilsa
+    // (masalan taklif kodi noto'g'ri bo'lsa), mahalliy keshda "o'qituvchi"
+    // bo'lib qolib ketmasin.
+    const previousLocal = LocalDB.getItem(COLLECTIONS.USERS, user.id);
     LocalDB.setItem(COLLECTIONS.USERS, user.id, user);
     // Demo yoki avtorizatsiyasiz foydalanuvchilar faqat LocalDB da saqlanadi
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || user.id.startsWith('local-demo-')) {
@@ -207,14 +218,25 @@ export const DB = {
         isPro: !!user.isPro,
         subscriptionStatus: user.subscriptionStatus || 'none'
       };
+      // O'qituvchi roli taklif kodi bilan beriladi va uni firestore.rules
+      // tekshiradi — shuning uchun kod yozuvga albatta kirishi kerak.
+      if (user.teacherCode) {
+        (sanitizedUser as any).teacherCode = user.teacherCode;
+      }
+
       await setDoc(doc(db, COLLECTIONS.USERS, user.id), sanitizedUser);
     } catch (error: any) {
       console.warn("setUser error:", error);
-      if (error?.code === 'permission-denied') {
-        try {
-          handleFirestoreError(error, OperationType.WRITE, path);
-        } catch {}
+      // Mahalliy keshni oldingi holatiga qaytaramiz
+      if (previousLocal) {
+        LocalDB.setItem(COLLECTIONS.USERS, user.id, previousLocal);
+      } else {
+        LocalDB.removeItem(COLLECTIONS.USERS, user.id);
       }
+      // Xato yuqoriga chiqariladi. Aks holda noto'g'ri taklif kodi yoki
+      // ruxsat xatosi foydalanuvchiga ko'rinmay qoladi va u o'zini
+      // ro'yxatdan o'tgan deb o'ylaydi.
+      throw error;
     }
   },
 

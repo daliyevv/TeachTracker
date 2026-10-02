@@ -8,7 +8,8 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:rules": "firebase emulators:exec --only firestore --project teachtracker-rules-test \"node --test tests/*.test.mjs\""
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
@@ -31,9 +32,11 @@
     "tsx": "^4.21.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "esbuild": "^0.28.0",
+    "firebase-tools": "^15.32.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

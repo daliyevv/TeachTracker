@@ -13,6 +13,8 @@ export interface User {
   isPro?: boolean;
   subscriptionStatus?: 'active' | 'canceled' | 'none';
   stripeCustomerId?: string;
+  /** O'qituvchi roli olingan taklif kodi. Qoidalar shu maydonni tekshiradi. */
+  teacherCode?: string;
 }
 
 export interface Resource {

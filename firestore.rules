@@ -1,10 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Master Catch-All Default Deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    // Eslatma: bu yerda ilgari "Master Catch-All Default Deny" bloki turardi.
+    // Firestore qoidalari OR mantig'i bilan ishlaydi — `allow read, write: if false`
+    // keyingi `allow` larni bekor qilmaydi. Ya'ni u hech narsani himoya qilmasdi,
+    // faqat noto'g'ri ishonch berardi. Mos keluvchi qoidasi yo'q yo'llar baribir
+    // rad etiladi, shuning uchun blok olib tashlandi.
 
     // Security Primitives
     function isSignedIn() {
@@ -29,6 +30,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
     }
 
+    // O'qituvchi roli faqat amaldagi taklif kodi bilan olinadi.
+    // Kodlar /teacherCodes kolleksiyasida, ularni faqat loyiha egasi
+    // Firebase Console orqali yaratadi.
+    function validTeacherCode(code) {
+      return code is string && code.size() > 0 && code.size() <= 128 &&
+        code.matches('^[a-zA-Z0-9_\\-]+$') &&
+        exists(/databases/$(database)/documents/teacherCodes/$(code)) &&
+        get(/databases/$(database)/documents/teacherCodes/$(code)).data.active == true;
+    }
+
     function isValidUser(data) {
       return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
@@ -39,7 +50,8 @@ service cloud.firestore {
              (!('points' in data) || data.points == null || data.points is number) &&
              (!('isPro' in data) || data.isPro == null || data.isPro is bool) &&
              (!('subscriptionStatus' in data) || data.subscriptionStatus == null || data.subscriptionStatus in ['active', 'canceled', 'none']) &&
-             (!('stripeCustomerId' in data) || data.stripeCustomerId == null || (data.stripeCustomerId is string && data.stripeCustomerId.size() <= 128));
+             (!('stripeCustomerId' in data) || data.stripeCustomerId == null || (data.stripeCustomerId is string && data.stripeCustomerId.size() <= 128)) &&
+             (!('teacherCode' in data) || data.teacherCode == null || (data.teacherCode is string && data.teacherCode.size() <= 128));
     }
 
     function isValidTask(data) {
@@ -57,29 +69,54 @@ service cloud.firestore {
              data.submittedAt is number;
     }
 
-    // Health check / connection test document
-    match /test/{docId} {
-      allow get: if true;
+    // Taklif kodlari — mijoz uchun butunlay yopiq.
+    //
+    // Qoida ichidagi get()/exists() imtiyozli ishlaydi: u maqsad hujjatning
+    // o'qish qoidalaridan o'tmaydi. Bu emulyatorda tekshirildi —
+    // validTeacherCode() quyidagi `if false` bilan ham ishlaydi
+    // (tests/firestore.rules.test.mjs).
+    //
+    // Shuning uchun kodni na o'qish, na ro'yxatini olish, na brute-force
+    // bilan topish mumkin. Kodlarni faqat loyiha egasi Firebase Console
+    // orqali yaratadi.
+    match /teacherCodes/{code} {
+      allow read, write: if false;
     }
 
     // Users Collection
     match /users/{userId} {
-      allow get: if isSignedIn() && isValidId(userId);
-      allow list: if isSignedIn() && (isTeacher() || resource.data.id == request.auth.uid);
+      // Faqat o'z profilini o'qiy oladi. Kod ichida users kolleksiyasiga
+      // so'rov (query) umuman yo'q — faqat uid bo'yicha bitta hujjat o'qiladi.
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+
       allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
-        isValidUser(incoming()) && incoming().id == userId;
+        isValidUser(incoming()) && incoming().id == userId && (
+          incoming().role == 'student' ||
+          (incoming().role == 'teacher' && validTeacherCode(incoming().teacherCode))
+        );
+
+      // Rolni o'zgartirish faqat amaldagi taklif kodi bilan va faqat
+      // o'quvchidan o'qituvchiga. Teskari yo'nalish va o'z-o'zini ko'tarish yopiq.
       allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
-        isValidUser(incoming()) && incoming().id == existing().id &&
-        incoming().role in ['teacher', 'student'];
+        isValidUser(incoming()) && incoming().id == existing().id && (
+          incoming().role == existing().role ||
+          (existing().role == 'student' && incoming().role == 'teacher' &&
+           validTeacherCode(incoming().teacherCode))
+        );
+
       allow delete: if false;
     }
 
     // Tasks Collection
     match /tasks/{taskId} {
-      allow get: if isValidId(taskId);
-      allow list: if true;
+      // Vazifa matni diktantning o'zi — autentifikatsiyasiz ochiq bo'lmasligi kerak.
+      allow get: if isSignedIn() && isValidId(taskId);
+      allow list: if isSignedIn();
+
       allow create: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
-        incoming().teacherId == request.auth.uid;
+        incoming().teacherId == request.auth.uid && isTeacher();
+
       allow update: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
         existing().teacherId == request.auth.uid &&
         incoming().teacherId == existing().teacherId &&
@@ -88,6 +125,7 @@ service cloud.firestore {
           'title', 'content', 'minPlaybackSpeed', 'status', 'type',
           'audioUrl', 'instructionFileUrl', 'instructionText'
         ]);
+
       allow delete: if isSignedIn() && isValidId(taskId) && existing().teacherId == request.auth.uid;
     }
 
@@ -95,23 +133,28 @@ service cloud.firestore {
     match /submissions/{submissionId} {
       allow get: if isSignedIn() && isValidId(submissionId) && (resource.data.studentId == request.auth.uid || isTeacher());
       allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher());
-      
+
       allow create: if isSignedIn() && isValidId(submissionId) && isValidSubmission(incoming()) && (
         (incoming().studentId == request.auth.uid && incoming().status in ['pending', 'reviewing']) ||
         isTeacher()
       );
 
+      // ttResult — AI natijasi. U faqat yaratishda yoziladi va keyin o'zgarmaydi,
+      // shuning uchun o'quvchining tahrir ro'yxatidan olib tashlandi. Kod uni
+      // yaratishdan keyin hech qachon yangilamaydi, ya'ni bu hech narsani buzmaydi.
       allow update: if isSignedIn() && isValidId(submissionId) && isValidSubmission(incoming()) &&
         incoming().taskId == existing().taskId &&
         incoming().studentId == existing().studentId &&
         incoming().submittedAt == existing().submittedAt && (
           (request.auth.uid == existing().studentId && existing().status != 'approved' &&
-           incoming().diff(existing()).affectedKeys().hasOnly(['images', 'files', 'ttResult', 'status']) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['images', 'files', 'status']) &&
            incoming().status in ['pending', 'reviewing']) ||
           (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'teacherCorrection', 'approvedAt']))
         );
 
-      allow delete: if isSignedIn() && isValidId(submissionId) && (existing().studentId == request.auth.uid || isTeacher());
+      // O'qituvchining o'chirish huquqi olib tashlandi: u istalgan o'quvchining
+      // ishini yo'q qila olardi. Kodda o'chirish chaqiruvi umuman yo'q.
+      allow delete: if isSignedIn() && isValidId(submissionId) && existing().studentId == request.auth.uid;
     }
   }
 }
