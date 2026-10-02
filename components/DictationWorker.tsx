@@ -238,14 +238,25 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
         ttResult = await analyzeAssignment(files, task.content);
       }
       
+      const storedImages = imageUrls.length > 0 ? imageUrls : allImageSources;
+
+      // Storage yoqilmagan bo'lsa rasmlar `images` ichida base64 holida
+      // keladi. `files` da ularning nusxasi ham bo'lsa, hujjat ikki barobar
+      // kattalashadi va Firestore chegarasiga tez uriladi. Shuning uchun
+      // rasm fayllarini tushirib qoldiramiz — ular `images` da bor.
+      const inlined = storedImages.some(src => !src.startsWith('http'));
+      const storedFiles = inlined
+        ? files.filter(f => !f.mimeType?.startsWith('image/'))
+        : files;
+
       const submission: Omit<Submission, "id"> = {
         taskId: task.id,
         studentId: user.id,
         // Vazifa egasi. Qoidalar bu qiymatni vazifa hujjatiga solishtiradi,
         // shuning uchun uni soxta qo'yib bo'lmaydi.
         teacherId: task.teacherId,
-        images: imageUrls.length > 0 ? imageUrls : (allImageSources.length > 0 ? allImageSources : undefined),
-        files: files.length > 0 ? files : undefined,
+        images: storedImages.length > 0 ? storedImages : undefined,
+        files: storedFiles.length > 0 ? storedFiles : undefined,
         ttResult: ttResult,
         status: 'pending',
         submittedAt: Date.now()

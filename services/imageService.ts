@@ -12,10 +12,15 @@
  */
 
 /** Rasmning eng uzun tomoni shu piksel qiymatiga keltiriladi. */
-const MAX_DIMENSION = 1500;
+const MAX_DIMENSION = 1400;
 
-/** Shu hajmdan kichik bo'lsa, sifatni yanada pasaytirmaymiz. */
-const TARGET_BYTES = 600 * 1024;
+/**
+ * Maqsadli hajm. Firebase Storage yoqilmagan bo'lsa rasm Firestore hujjati
+ * ichida base64 holida saqlanadi, base64 esa hajmni ~33% oshiradi.
+ * 220KB rasm -> ~293KB base64, ya'ni ikki sahifa 900KB zahiraga bemalol
+ * sig'adi. Qo'lyozma matnni o'qish uchun 1400px yetarli.
+ */
+const TARGET_BYTES = 220 * 1024;
 
 const QUALITY_STEPS = [0.82, 0.72, 0.62, 0.5];
 
