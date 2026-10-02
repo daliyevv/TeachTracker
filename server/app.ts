@@ -57,6 +57,47 @@ const getApiKey = () => {
   return key;
 };
 
+/**
+ * Gemini kaliti haqiqatan o'rnatilganmi.
+ *
+ * Nega kerak: kalit bo'lmasa `getApiKey()` "MISSING_KEY" qaytaradi, Gemini
+ * esa uni rad etadi va xato "kalit yaroqsiz" bo'lib keladi. Ilgari bu
+ * `failure()` da boshqa hamma ruxsat xatosi bilan birga 503 ga aylanar va
+ * mijoz "Xizmat vaqtincha ishlamayapti. Birozdan keyin urinib ko'ring."
+ * degan xabarni olardi.
+ *
+ * Bu xabar IKKI TOMONLAMA yomon:
+ *   - o'quvchiga yolg'on umid beradi ("kutsam ishlaydi") — aslida kutish
+ *     hech narsani o'zgartirmaydi, sozlama kerak;
+ *   - loyiha egasiga nima buzilganini AYTMAYDI.
+ *
+ * Kalitning MAVJUDLIGI maxfiy ma'lumot emas (qiymati maxfiy), shuning
+ * uchun uni aytish xavfsiz va muammoni bir qarashda hal qiladi.
+ */
+const geminiConfigured = getApiKey() !== "MISSING_KEY";
+
+if (!geminiConfigured) {
+  console.error(
+    "DIQQAT: GEMINI_API_KEY o'rnatilmagan — /api/gemini/* yo'llari ishlamaydi."
+  );
+}
+
+/**
+ * Kalit yo'q bo'lsa, Gemini'ga umuman murojaat qilmasdan aniq xato
+ * qaytaradi. `requireAuth` dan KEYIN turadi: xabar faqat tizimga kirgan
+ * foydalanuvchiga ko'rinadi.
+ */
+const requireGemini = (_req: any, res: express.Response, next: express.NextFunction) => {
+  if (!geminiConfigured) {
+    return res.status(503).json({
+      error:
+        "Server to'liq sozlanmagan: GEMINI_API_KEY yo'q. " +
+        "Loyiha egasi uni Vercel sozlamalariga qo'shishi kerak — kutish yordam bermaydi.",
+    });
+  }
+  next();
+};
+
 const ai = new GoogleGenAI({
   apiKey: getApiKey(),
   httpOptions: {
@@ -198,9 +239,16 @@ const failure = (res: express.Response, error: any, fallback: string) => {
   if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(detail)) {
     return res.status(429).json({ error: "Server hozir band. Bir oz kutib, qayta urinib ko'ring." });
   }
-  if (status === 401 || status === 403 || /API key/i.test(detail)) {
-    // Kalit muammosi — bu loyiha egasining ishi, mijozga tafsilot bermaymiz.
-    return res.status(503).json({ error: "Xizmat vaqtincha ishlamayapti. Birozdan keyin urinib ko'ring." });
+  if (status === 401 || status === 403 || /API key|API_KEY|PERMISSION_DENIED|UNAUTHENTICATED/i.test(detail)) {
+    // Kalit bor, lekin Gemini uni qabul qilmadi: noto'g'ri, muddati o'tgan
+    // yoki cheklangan (masalan domen/IP bo'yicha). Ilgari bu "Xizmat
+    // vaqtincha ishlamayapti" bo'lib qaytar va hech kim nima qilish
+    // kerakligini bilmasdi. Kalit QIYMATI bu yerda ham oshkor qilinmaydi.
+    return res.status(503).json({
+      error:
+        "AI xizmati kalitni qabul qilmadi. Loyiha egasi GEMINI_API_KEY ni " +
+        "tekshirishi kerak (noto'g'ri, muddati o'tgan yoki cheklangan).",
+    });
   }
   return res.status(500).json({ error: fallback });
 };
@@ -273,7 +321,7 @@ const ALLOWED_VOICES = ['Zephyr', 'Kore'];
 const MATERIAL_TYPES = ['lesson_plan', 'test', 'worksheet', 'crossword'];
 
 // API Routes
-app.post("/api/gemini/detect-paper-bounds", requireAuth(BOUNDS_QUOTA), async (req, res) => {
+app.post("/api/gemini/detect-paper-bounds", requireAuth(BOUNDS_QUOTA), requireGemini, async (req, res) => {
   try {
     const { base64Image } = req.body;
     if (!base64Image) {
@@ -311,7 +359,7 @@ app.post("/api/gemini/detect-paper-bounds", requireAuth(BOUNDS_QUOTA), async (re
   }
 });
 
-app.post("/api/gemini/analyze-dictation", requireAuth(ANALYZE_QUOTA), async (req, res) => {
+app.post("/api/gemini/analyze-dictation", requireAuth(ANALYZE_QUOTA), requireGemini, async (req, res) => {
   try {
     const { base64Images, originalText } = req.body;
     if (!base64Images || !Array.isArray(base64Images) || base64Images.length === 0) {
@@ -439,7 +487,7 @@ app.post("/api/gemini/analyze-dictation", requireAuth(ANALYZE_QUOTA), async (req
   }
 });
 
-app.post("/api/gemini/analyze-assignment", requireAuth(ANALYZE_QUOTA), async (req, res) => {
+app.post("/api/gemini/analyze-assignment", requireAuth(ANALYZE_QUOTA), requireGemini, async (req, res) => {
   try {
     const { files, instruction } = req.body;
     const systemInstruction = `
@@ -541,7 +589,7 @@ app.post("/api/gemini/analyze-assignment", requireAuth(ANALYZE_QUOTA), async (re
   }
 });
 
-app.post("/api/gemini/generate-material", requireAuth(MATERIAL_QUOTA), async (req, res) => {
+app.post("/api/gemini/generate-material", requireAuth(MATERIAL_QUOTA), requireGemini, async (req, res) => {
   try {
     const { prompt, type } = req.body;
     if (typeof prompt !== 'string' || prompt.trim().length === 0) {
@@ -595,7 +643,7 @@ app.post("/api/gemini/generate-material", requireAuth(MATERIAL_QUOTA), async (re
   }
 });
 
-app.post("/api/gemini/tts", requireAuth(TTS_QUOTA), async (req, res) => {
+app.post("/api/gemini/tts", requireAuth(TTS_QUOTA), requireGemini, async (req, res) => {
   try {
     const { prompt, voiceName } = req.body;
     // Ilgali tekshiruv yo'q edi: `prompt` bo'lmasa yoki massiv bo'lsa, xato

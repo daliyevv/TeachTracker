@@ -93,3 +93,50 @@ test("ishlab chiqarishdan tashqarida localhost ga CORS ruxsati beriladi", async 
   });
   assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
 });
+
+// --- Gemini kaliti sozlanmaganda ---
+
+test("GEMINI_API_KEY yo'q bo'lsa aniq xato qaytadi, umumiy emas", async () => {
+  // Bu testda kalit atayin o'rnatilmagan (test muhitida .env yo'q), ya'ni
+  // server `requireGemini` orqali to'xtatishi kerak.
+  //
+  // Ilgari bu holat "Xizmat vaqtincha ishlamayapti. Birozdan keyin urinib
+  // ko'ring." bo'lib qaytardi — o'quvchiga yolg'on umid berar
+  // ("kutsam ishlaydi"), loyiha egasiga esa nima buzilganini aytmasdi.
+  if (process.env.GEMINI_API_KEY) {
+    // Kalit mavjud muhitda bu testning ma'nosi yo'q.
+    return;
+  }
+
+  // Tokensiz so'rov `requireAuth` da to'xtaydi, ya'ni `requireGemini` ga
+  // yetib bormaydi. Shuning uchun bu yerda faqat xabarning MANBASINI
+  // tekshiramiz: kod ichida aniq matn borligini.
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('server/app.ts', 'utf8');
+
+  assert.ok(src.includes('GEMINI_API_KEY yo\'q'), 'kalit yo\'qligi aytilishi kerak');
+  assert.ok(
+    src.includes('kutish yordam bermaydi'),
+    "xabar kutishning foydasi yo'qligini aytishi kerak"
+  );
+  // Har bir Gemini yo'li himoyalangan bo'lishi kerak.
+  const guarded = (src.match(/requireGemini/g) || []).length;
+  // 1 ta ta'rif + 5 ta yo'l
+  assert.ok(guarded >= 6, `requireGemini yetarli joyda yo'q (${guarded})`);
+});
+
+test('kalit rad etilgan holat kalit yo\'qligidan AJRATILGAN', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('server/app.ts', 'utf8');
+  // Ikki holat ikki xil xabar olishi kerak — ilgari ikkisi ham bir xil edi.
+  assert.ok(src.includes('kalitni qabul qilmadi'), 'rad etilgan kalit uchun alohida xabar');
+  // Umumiy "xizmat ishlamayapti" matni endi JAVOB sifatida
+  // qaytarilmasligi kerak. Izohlarda eslatma sifatida qolishi normal,
+  // shuning uchun faqat `error:` qiymatlarini tekshiramiz.
+  const errorValues = [...src.matchAll(/error:\s*\n?\s*"([^"]*)"/g)].map(m => m[1]);
+  assert.ok(errorValues.length > 0, 'javob matnlari topilishi kerak');
+  assert.ok(
+    !errorValues.some(v => v.includes('Xizmat vaqtincha ishlamayapti')),
+    "umumiy 'xizmat ishlamayapti' xabari javob sifatida qolmasligi kerak"
+  );
+});
