@@ -1,3 +1,4 @@
+import { postJson } from './apiClient';
 export interface AudioController {
   pause: () => void;
   resume: () => void;
@@ -50,19 +51,12 @@ function createWavBlob(pcmData: Uint8Array, sampleRate: number): Blob {
 
 async function fetchAudio(prompt: string, voiceName: string): Promise<string | null> {
   try {
-    const response = await fetch('/api/gemini/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, voiceName })
-    });
-    if (!response.ok) {
-      console.error("TTS Server Error:", await response.text());
-      return null;
-    }
-    const data = await response.json();
-    return data.base64Audio;
+    const data = await postJson<{ base64Audio?: string }>('/api/gemini/tts', { prompt, voiceName });
+    return data.base64Audio ?? null;
   } catch (error) {
-    console.error("TTS Network Error:", error);
+    // Ovoz chiqmasligi diktantni to'xtatmaydi — chaqiruvchi `null` ni
+    // o'zi hisobga oladi.
+    console.error("TTS Error:", error);
     return null;
   }
 }
