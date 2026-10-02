@@ -221,3 +221,108 @@ test("appendWithinLimit bo'sh ro'yxatga normal qo'shadi", async () => {
   assert.deepEqual(result.next, ['a', 'b']);
   assert.equal(result.rejected, 0);
 });
+
+// --- kirish xatolari ---
+
+test("har bir kirish xatosi O'Z matnini oladi", async () => {
+  const { describeAuthError } = await import('../../services/authErrors.ts');
+
+  // Ilgari bu uchta butunlay boshqa sabab bitta gapga yig'ilardi:
+  // "Google bilan kirib bo'lmadi. Qayta urinib ko'ring."
+  const domain = describeAuthError({ code: 'auth/unauthorized-domain' });
+  const disabled = describeAuthError({ code: 'auth/operation-not-allowed' });
+  const cookies = describeAuthError({ code: 'auth/internal-error' });
+
+  assert.notEqual(domain.message, disabled.message);
+  assert.notEqual(disabled.message, cookies.message);
+  assert.notEqual(domain.message, cookies.message);
+
+  // Sozlama muammosi va foydalanuvchi holati ajratiladi.
+  assert.equal(domain.kind, 'config');
+  assert.equal(disabled.kind, 'config');
+  assert.equal(cookies.kind, 'user');
+  assert.equal(describeAuthError({ code: 'auth/network-request-failed' }).kind, 'network');
+});
+
+test('kirish xatosining kodi har doim saqlanadi', async () => {
+  const { describeAuthError } = await import('../../services/authErrors.ts');
+
+  // Kod interfeysda ko'rsatiladi — telefondan konsolni ochish qiyin.
+  assert.equal(describeAuthError({ code: 'auth/unauthorized-domain' }).code, 'auth/unauthorized-domain');
+  // Notanish kod ham yo'qolmaydi: shu kod bo'yicha muammoni aniqlaymiz.
+  assert.equal(describeAuthError({ code: 'auth/qandaydir-yangi-xato' }).code, 'auth/qandaydir-yangi-xato');
+  assert.equal(describeAuthError({}).code, 'unknown');
+  assert.equal(describeAuthError(null).code, 'unknown');
+  // Notanish xato ham tushunarli matn bilan keladi, bo'sh emas.
+  assert.ok(describeAuthError({ code: 'x' }).message.length > 0);
+  assert.ok(describeAuthError({ code: 'x' }).hint);
+});
+
+test("foydalanuvchi o'zi bekor qilgani xato deb hisoblanmaydi", async () => {
+  const { isUserCancelled } = await import('../../services/authErrors.ts');
+  assert.equal(isUserCancelled({ code: 'auth/popup-closed-by-user' }), true);
+  assert.equal(isUserCancelled({ code: 'auth/cancelled-popup-request' }), true);
+  // Haqiqiy xato jim o'tkazilmasligi kerak.
+  assert.equal(isUserCancelled({ code: 'auth/unauthorized-domain' }), false);
+  assert.equal(isUserCancelled({ code: 'auth/internal-error' }), false);
+  assert.equal(isUserCancelled(null), false);
+});
+
+test('redirect zaxirasi faqat popup ishlamaganda ishlaydi', async () => {
+  const { shouldFallBackToRedirect } = await import('../../services/authErrors.ts');
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/popup-blocked' }), true);
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/operation-not-supported-in-this-environment' }), true);
+  // Domen ruxsat etilmagan bo'lsa, redirect ham ishlamaydi — bekorga
+  // sahifani Google'ga jo'natishning ma'nosi yo'q.
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/unauthorized-domain' }), false);
+  assert.equal(shouldFallBackToRedirect({ code: 'auth/network-request-failed' }), false);
+});
+
+// --- demo rejimi ---
+
+test('demo uid yaratilishi va tekshirilishi MOS keladi', async () => {
+  const { newDemoUid, isDemoUid, DEMO_UID_PREFIX } = await import('../../services/demoMode.ts');
+
+  // Aynan shu yerda nuqson bor edi: LoginScreen `demo-user-` bilan
+  // yaratar, dbService esa `local-demo-` ni tekshirardi — ya'ni tekshiruv
+  // HECH QACHON ishlamasdi.
+  const uid = newDemoUid();
+  assert.ok(uid.startsWith(DEMO_UID_PREFIX));
+  assert.equal(isDemoUid(uid), true, 'yaratilgan uid tekshiruvdan o\'tishi shart');
+
+  // Haqiqiy Firebase uid demo deb hisoblanmasligi kerak.
+  assert.equal(isDemoUid('kJ3nX9aBcDeFgHiJkLmNoPqRsTuV'), false);
+  assert.equal(isDemoUid('local-demo-abc'), false);
+  assert.equal(isDemoUid(''), false);
+  assert.equal(isDemoUid(undefined), false);
+  assert.equal(isDemoUid(null), false);
+  assert.equal(isDemoUid(123), false);
+});
+
+test('har demo uid alohida bo\'ladi', async () => {
+  const { newDemoUid } = await import('../../services/demoMode.ts');
+  const ids = new Set(Array.from({ length: 50 }, () => newDemoUid()));
+  // Bir xil uid ikki demo sessiyani aralashtirib yuborardi.
+  assert.ok(ids.size > 45, `kutilgan ~50 xil uid, olindi ${ids.size}`);
+});
+
+test("dbService demo foydalanuvchini Firestore'ga yozmaydi", async () => {
+  // Kodda eski, ishlamaydigan prefiks qolib ketmaganini tekshiramiz.
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('services/dbService.ts', 'utf8');
+  assert.ok(!src.includes('local-demo-'), "eski 'local-demo-' prefiksi qolib ketgan");
+  assert.ok(src.includes('isDemoUid('), 'demo tekshiruvi umumiy funksiyadan kelishi kerak');
+});
+
+test("demo rejimida taklif kodi so'ralmaydi", async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('components/LoginScreen.tsx', 'utf8');
+  // "Men Ustozman" tugmasi to'g'ridan-to'g'ri kod panelini ochmasligi kerak.
+  assert.ok(
+    !src.includes('onClick={() => { setRoleError(null); setShowTeacherCode(true); }}'),
+    "tugma hamma holatda kod panelini ochmasligi kerak"
+  );
+  assert.ok(src.includes('const isDemo = isDemoUid('), 'demo holati aniqlanishi kerak');
+  // Demo bo'lmasa kod panelini ochadi, demo bo'lsa darhol o'tadi.
+  assert.ok(src.includes('if (!isDemo) {'), 'demo va haqiqiy hisob ajratilishi kerak');
+});

@@ -1,8 +1,15 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
-import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { newDemoUid, isDemoUid } from '../services/demoMode';
+import {
+  describeAuthError,
+  isUserCancelled,
+  shouldFallBackToRedirect,
+  type AuthErrorInfo,
+} from '../services/authErrors';
 import { setServiceDegraded, getServiceStatus, resetServiceStatus } from '../services/dbService';
 
 interface Props {
@@ -17,7 +24,28 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
   const [showTeacherCode, setShowTeacherCode] = useState(false);
   const [teacherCode, setTeacherCode] = useState('');
   const [roleError, setRoleError] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<AuthErrorInfo | null>(null);
+
+  /**
+   * Redirect bilan kirishdan qaytganda natijani o'qiymiz.
+   *
+   * Nega kerak: `signInWithRedirect` dan keyin Google sahifaga qaytaradi.
+   * Muvaffaqiyatli bo'lsa `onAuthStateChanged` ishga tushadi va App o'zi
+   * davom etadi. Lekin XATO bo'lsa (masalan domen ruxsat etilmagan),
+   * `getRedirectResult` chaqirilmasa u xato HECH QAYERDA ko'rinmaydi —
+   * foydalanuvchi shunchaki kirish ekraniga qaytadi va nega
+   * kirmaganini bilmaydi. Aynan shu holat ilgari sodir bo'lardi.
+   */
+  useEffect(() => {
+    if (!auth) return;
+    let active = true;
+    getRedirectResult(auth).catch((err: any) => {
+      if (!active || isUserCancelled(err)) return;
+      console.error("Redirect bilan kirishdan qaytishda xato:", err);
+      setAuthError(describeAuthError(err));
+    });
+    return () => { active = false; };
+  }, []);
 
   const describeRoleError = (err: any) =>
     err?.code === 'permission-denied'
@@ -31,6 +59,43 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
     setRoleError(null);
     try {
       await onRoleSelect('teacher', code);
+    } catch (err: any) {
+      setRoleError(describeRoleError(err));
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  /**
+   * Demo rejimidamizmi.
+   *
+   * Demo foydalanuvchi Firestore'ga hech narsa yozmaydi (sessiya yo'q),
+   * ya'ni taklif kodini tekshiradigan qoida ham umuman ishga tushmaydi.
+   * Shuning uchun demo rejimida kod so'rash HECH QANDAY himoya bermaydi —
+   * faqat yo'lni to'sadi.
+   */
+  const isDemo = isDemoUid(pendingUser?.uid);
+
+  /**
+   * "Men Ustozman" bosilganda.
+   *
+   * Haqiqiy hisobda taklif kodi so'raladi (Faza 1: rolni o'zi o'ziga
+   * ko'tarishni to'xtatish uchun). Demo rejimida esa darhol o'tadi:
+   * ilgari bu yerda ham kod so'ralardi va demo foydalanuvchi "maktabingiz
+   * bergan kodni kiriting" degan yozuvni ko'rardi — demo rejimida esa
+   * na maktab, na kod bor. Ya'ni demo rejimida ustoz bo'lib sinab
+   * ko'rishning IMKONI YO'Q edi, garchi tugma ostida "keyin Ustoz bo'lib
+   * uni tekshirishingiz mumkin" deb yozilgan bo'lsa ham.
+   */
+  const chooseTeacher = async () => {
+    setRoleError(null);
+    if (!isDemo) {
+      setShowTeacherCode(true);
+      return;
+    }
+    setRoleLoading('teacher');
+    try {
+      await onRoleSelect('teacher');
     } catch (err: any) {
       setRoleError(describeRoleError(err));
     } finally {
@@ -67,7 +132,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
         picture: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`
       });
     } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+      if (isUserCancelled(err)) {
         // Foydalanuvchi popupni o'zi yopdi — xato emas
         return;
       }
@@ -80,25 +145,21 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
       //
       // Popup mobil brauzerlarda va Telegram/Instagram ichidagi
       // brauzerlarda tez-tez bloklanadi, shuning uchun redirect'ga o'tamiz.
-      if (
-        err.code === 'auth/popup-blocked' ||
-        err.code === 'auth/operation-not-supported-in-this-environment' ||
-        err.code === 'auth/web-storage-unsupported'
-      ) {
+      if (shouldFallBackToRedirect(err)) {
         try {
           await signInWithRedirect(auth, googleProvider);
           return; // Sahifa Google'ga o'tadi va qaytib keladi
         } catch (redirectErr: any) {
           console.error("Redirect bilan kirish ham ishlamadi:", redirectErr);
+          setAuthError(describeAuthError(redirectErr));
+          return;
         }
       }
 
-      console.error("Google bilan kirishda xato:", err);
-      setAuthError(
-        err.code === 'auth/network-request-failed'
-          ? "Internet aloqasi yo'q. Ulanishni tekshirib, qayta urinib ko'ring."
-          : "Google bilan kirib bo'lmadi. Qayta urinib ko'ring."
-      );
+      // Xato kodini ham saqlaymiz: ilgari hamma sabab bitta umumiy gapga
+      // yig'ilar va muammoni aniqlash imkonsiz edi.
+      console.error("Google bilan kirishda xato:", err?.code, err);
+      setAuthError(describeAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -106,7 +167,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
 
   const handleDemoLogin = () => {
     onAuthenticated({
-      uid: "demo-user-" + Math.random().toString(36).substr(2, 6),
+      uid: newDemoUid(),
       name: "Demo Foydalanuvchi",
       email: "demo@teachtracker.uz",
       picture: `https://api.dicebear.com/7.x/avataaars/svg?seed=demo-user`
@@ -159,9 +220,17 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
             </div>
             
             {authError && (
-              <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3">
-                {authError}
-              </p>
+              <div role="alert" className="text-left bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3 space-y-1.5">
+                <p className="text-xs font-black text-rose-700">{authError.message}</p>
+                {authError.hint && (
+                  <p className="text-[11px] font-medium text-slate-600 leading-relaxed">{authError.hint}</p>
+                )}
+                {/*
+                  Xato kodi. Telefonda konsolni ochish qiyin, kod esa bitta
+                  skrinshotda ko'rinadi va muammoni aniq aytib beradi.
+                */}
+                <p className="text-[10px] font-mono text-slate-400 pt-0.5 select-all">{authError.code}</p>
+              </div>
             )}
 
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
@@ -177,7 +246,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
             </div>
             <div className="grid grid-cols-1 gap-4">
               <button 
-                onClick={() => { setRoleError(null); setShowTeacherCode(true); }}
+                onClick={chooseTeacher}
                 disabled={!!roleLoading}
                 className="group p-6 bg-white border-2 border-slate-100 hover:border-indigo-600 rounded-[2rem] transition-all text-left flex items-center space-x-4 hover:shadow-lg hover:shadow-indigo-50 disabled:opacity-50"
               >
@@ -190,7 +259,9 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
                 </div>
                 <div>
                   <p className="font-bold text-slate-800">Men Ustozman</p>
-                  <p className="text-xs text-slate-400 font-medium">Vazifa yaratish va tekshirish</p>
+                  <p className="text-xs text-slate-400 font-medium">
+                    {isDemo ? "Vazifa yaratish va tekshirish" : "Taklif kodi talab qilinadi"}
+                  </p>
                 </div>
               </button>
               <button 
