@@ -1,5 +1,6 @@
 {
   "firestore": {
+    "database": "ai-studio-teachtracker-71275fc1-baf3-43d4-9a29-642ce7968c8e",
     "rules": "firestore.rules"
   },
   "storage": {
