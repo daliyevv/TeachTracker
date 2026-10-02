@@ -26,6 +26,7 @@ let testEnv;
 const STUDENT = 'student_aaa';
 const STUDENT2 = 'student_bbb';
 const TEACHER = 'teacher_zzz';
+const TEACHER2 = 'teacher_yyy';
 
 const baseUser = (id, role) => ({
   id,
@@ -39,6 +40,7 @@ const baseUser = (id, role) => ({
 const baseSubmission = (studentId, extra = {}) => ({
   taskId: 'task_1',
   studentId,
+  teacherId: TEACHER,
   status: 'pending',
   submittedAt: 1700000000000,
   ...extra,
@@ -60,6 +62,7 @@ before(async () => {
     await setDoc(doc(db, 'users', STUDENT), baseUser(STUDENT, 'student'));
     await setDoc(doc(db, 'users', STUDENT2), baseUser(STUDENT2, 'student'));
     await setDoc(doc(db, 'users', TEACHER), baseUser(TEACHER, 'teacher'));
+    await setDoc(doc(db, 'users', TEACHER2), baseUser(TEACHER2, 'teacher'));
 
     await setDoc(doc(db, 'teacherCodes', 'VALIDCODE1'), { active: true, label: 'Test maktab' });
     await setDoc(doc(db, 'teacherCodes', 'REVOKEDCODE'), { active: false, label: 'Bekor qilingan' });
@@ -67,6 +70,13 @@ before(async () => {
     await setDoc(doc(db, 'tasks', 'task_1'), {
       teacherId: TEACHER,
       title: 'Diktant 1',
+      content: 'Matn',
+      status: 'published',
+      createdAt: 1700000000000,
+    });
+    await setDoc(doc(db, 'tasks', 'task_t2'), {
+      teacherId: TEACHER2,
+      title: 'Diktant (2-ustoz)',
       content: 'Matn',
       status: 'published',
       createdAt: 1700000000000,
@@ -188,6 +198,7 @@ test("o'quvchi haqiqiy topshiriqni (DictationWorker shakli) yarata OLADI", async
     setDoc(doc(db, 'submissions', 'sub_real'), {
       taskId: 'task_1',
       studentId: STUDENT,
+      teacherId: TEACHER,
       images: ['https://firebasestorage.example/a.jpg'],
       ttResult: { grade: 4, mistakes: [{ type: 'imlo' }], handwritingScore: 4 },
       status: 'pending',
@@ -270,12 +281,72 @@ test("o'qituvchi qo'lda yuklagan ishini o'chira OLADI", async () => {
     await setDoc(doc(ctx.firestore(), 'submissions', 'sub_manual'), {
       taskId: 'task_1',
       studentId: 'manual_1700000000000',
+      teacherId: TEACHER,
       status: 'approved',
       submittedAt: 1700000000000,
     });
   });
   const db = testEnv.authenticatedContext(TEACHER).firestore();
   await assertSucceeds(deleteDoc(doc(db, 'submissions', 'sub_manual')));
+});
+
+// ------------------------------------------- O'QITUVCHILAR ORASIDAGI CHEGARA
+
+test("o'qituvchi BOSHQA o'qituvchining o'quvchisini o'qiy OLMAYDI", async () => {
+  const db = testEnv.authenticatedContext(TEACHER2).firestore();
+  await assertFails(getDoc(doc(db, 'submissions', 'sub_student1')));
+});
+
+test("o'qituvchi filtrsiz butun kolleksiyani so'ray OLMAYDI", async () => {
+  const db = testEnv.authenticatedContext(TEACHER).firestore();
+  await assertFails(getDocs(collection(db, 'submissions')));
+});
+
+test("o'qituvchi faqat o'z vazifalari bo'yicha so'rov bera OLADI", async () => {
+  const db = testEnv.authenticatedContext(TEACHER).firestore();
+  await assertSucceeds(
+    getDocs(query(collection(db, 'submissions'), where('teacherId', '==', TEACHER)))
+  );
+  await assertFails(
+    getDocs(query(collection(db, 'submissions'), where('teacherId', '==', TEACHER2)))
+  );
+});
+
+test("o'qituvchi boshqa o'qituvchining o'quvchisiga baho qo'ya OLMAYDI", async () => {
+  const db = testEnv.authenticatedContext(TEACHER2).firestore();
+  await assertFails(
+    updateDoc(doc(db, 'submissions', 'sub_student1'), {
+      status: 'approved',
+      teacherCorrection: { grade: 5, mistakes: [] },
+      approvedAt: 1700000003000,
+    })
+  );
+});
+
+test("o'quvchi topshiriqqa SOXTA teacherId qo'ya OLMAYDI", async () => {
+  // Vazifa task_1 TEACHER ga tegishli; o'quvchi uni TEACHER2 ga biriktira olmaydi.
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertFails(
+    setDoc(doc(db, 'submissions', 'sub_wrong_teacher'), {
+      taskId: 'task_1',
+      studentId: STUDENT,
+      teacherId: TEACHER2,
+      status: 'pending',
+      submittedAt: 1700000006000,
+    })
+  );
+});
+
+test("o'quvchi teacherId siz topshiriq yarata OLMAYDI", async () => {
+  const db = testEnv.authenticatedContext(STUDENT).firestore();
+  await assertFails(
+    setDoc(doc(db, 'submissions', 'sub_no_teacher'), {
+      taskId: 'task_1',
+      studentId: STUDENT,
+      status: 'pending',
+      submittedAt: 1700000007000,
+    })
+  );
 });
 
 // --------------------------------------------------------------- VAZIFA

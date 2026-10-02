@@ -35,7 +35,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
 
   useEffect(() => {
     const unsubTasks = DB.subscribeToTasks(setTasks);
-    const unsubSubs = DB.subscribeToSubmissions(setSubs, user.id);
+    const unsubSubs = DB.subscribeToSubmissions(setSubs, { studentId: user.id });
 
     return () => {
       unsubTasks();

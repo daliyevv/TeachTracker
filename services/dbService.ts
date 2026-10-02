@@ -165,6 +165,29 @@ const LocalDB = {
   }
 };
 
+/**
+ * Topshiriqlarni kim so'rayotganini bildiradi.
+ *
+ * O'qituvchi endi BARCHA topshiriqlarni emas, faqat o'z vazifalariga
+ * tegishlilarini ko'radi. firestore.rules shu filtr qo'yilganini talab
+ * qiladi, shuning uchun filtrsiz so'rov rad etiladi.
+ */
+export type SubmissionFilter = { studentId?: string; teacherId?: string };
+
+const buildSubmissionQuery = (filter?: SubmissionFilter) => {
+  const col = collection(db, COLLECTIONS.SUBMISSIONS);
+  if (filter?.studentId) return query(col, where("studentId", "==", filter.studentId));
+  if (filter?.teacherId) return query(col, where("teacherId", "==", filter.teacherId));
+  return col;
+};
+
+const filterLocalSubmissions = (filter?: SubmissionFilter): Submission[] => {
+  const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS) as Submission[];
+  if (filter?.studentId) return subs.filter(s => s.studentId === filter.studentId);
+  if (filter?.teacherId) return subs.filter(s => s.teacherId === filter.teacherId);
+  return subs;
+};
+
 export const DB = {
   // User
   getUser: async (uid: string): Promise<User | null> => {
@@ -351,16 +374,13 @@ export const DB = {
   },
 
   // Submissions
-  getSubmissions: async (studentId?: string): Promise<Submission[]> => {
+  getSubmissions: async (filter?: SubmissionFilter): Promise<Submission[]> => {
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
-      const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-      return studentId ? subs.filter((s: any) => s.studentId === studentId) : subs;
+      return filterLocalSubmissions(filter);
     }
     const path = COLLECTIONS.SUBMISSIONS;
     try {
-      const q = studentId
-        ? query(collection(db, COLLECTIONS.SUBMISSIONS), where("studentId", "==", studentId))
-        : collection(db, COLLECTIONS.SUBMISSIONS);
+      const q = buildSubmissionQuery(filter);
 
       const querySnapshot = await getDocs(q);
       const subs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission));
@@ -375,8 +395,7 @@ export const DB = {
           handleFirestoreError(error, OperationType.LIST, path);
         } catch {}
       }
-      const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-      return studentId ? subs.filter((s: any) => s.studentId === studentId) : subs;
+      return filterLocalSubmissions(filter);
     }
   },
 
@@ -450,19 +469,15 @@ export const DB = {
     });
   },
 
-  subscribeToSubmissions: (callback: (subs: Submission[]) => void, studentId?: string) => {
+  subscribeToSubmissions: (callback: (subs: Submission[]) => void, filter?: SubmissionFilter) => {
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
       const interval = setInterval(() => {
-        const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-        if (studentId) callback(subs.filter((s: any) => s.studentId === studentId));
-        else callback(subs);
+        callback(filterLocalSubmissions(filter));
       }, 2500);
       return () => clearInterval(interval);
     }
     const path = COLLECTIONS.SUBMISSIONS;
-    const q = studentId
-      ? query(collection(db, COLLECTIONS.SUBMISSIONS), where("studentId", "==", studentId))
-      : collection(db, COLLECTIONS.SUBMISSIONS);
+    const q = buildSubmissionQuery(filter);
 
     return onSnapshot(q, (snapshot) => {
       const subs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission));

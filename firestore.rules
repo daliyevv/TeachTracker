@@ -54,6 +54,12 @@ service cloud.firestore {
              (!('teacherCode' in data) || data.teacherCode == null || (data.teacherCode is string && data.teacherCode.size() <= 128));
     }
 
+    // Vazifa egasi bo'lgan o'qituvchi. Topshiriqdagi `teacherId` shu qiymatga
+    // solishtiriladi, shuning uchun o'quvchi uni soxta qo'ya olmaydi.
+    function taskTeacher(taskId) {
+      return get(/databases/$(database)/documents/tasks/$(taskId)).data.teacherId;
+    }
+
     function isValidTask(data) {
       return data.teacherId is string && data.teacherId.size() > 0 && data.teacherId.size() <= 128 &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
@@ -135,8 +141,17 @@ service cloud.firestore {
 
     // Submissions Collection
     match /submissions/{submissionId} {
-      allow get: if isSignedIn() && isValidId(submissionId) && (resource.data.studentId == request.auth.uid || isTeacher());
-      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher());
+      // O'qituvchi endi FAQAT o'z vazifalariga tegishli ishlarni ko'radi.
+      // Ilgari istalgan o'qituvchi butun platformadagi barcha bolalarning
+      // ishlarini o'qiy olardi.
+      allow get: if isSignedIn() && isValidId(submissionId) && (
+        resource.data.studentId == request.auth.uid ||
+        (isTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      allow list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        (isTeacher() && resource.data.teacherId == request.auth.uid)
+      );
 
       // O'quvchi yaratishda ham `teacherCorrection` yoki `approvedAt` yoza
       // OLMAYDI. Aks holda bahoni `ttResult` dan `teacherCorrection` ga
@@ -146,8 +161,9 @@ service cloud.firestore {
         (incoming().studentId == request.auth.uid &&
          incoming().status in ['pending', 'reviewing'] &&
          !('teacherCorrection' in incoming()) &&
-         !('approvedAt' in incoming())) ||
-        isTeacher()
+         !('approvedAt' in incoming()) &&
+         incoming().teacherId == taskTeacher(incoming().taskId)) ||
+        (isTeacher() && incoming().teacherId == request.auth.uid)
       );
 
       // ttResult — AI natijasi. U faqat yaratishda yoziladi va keyin o'zgarmaydi,
@@ -160,7 +176,8 @@ service cloud.firestore {
           (request.auth.uid == existing().studentId && existing().status != 'approved' &&
            incoming().diff(existing()).affectedKeys().hasOnly(['images', 'files', 'status']) &&
            incoming().status in ['pending', 'reviewing']) ||
-          (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'teacherCorrection', 'approvedAt']))
+          (isTeacher() && existing().teacherId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'teacherCorrection', 'approvedAt']))
         );
 
       // O'qituvchining umumiy o'chirish huquqi olib tashlandi: u istalgan
@@ -169,7 +186,8 @@ service cloud.firestore {
       // O'qituvchi faqat o'zi qo'lda yuklagan ishni o'chira oladi.
       allow delete: if isSignedIn() && isValidId(submissionId) && (
         (existing().studentId == request.auth.uid && existing().status != 'approved') ||
-        (isTeacher() && existing().studentId.matches('^manual_[0-9]+$'))
+        (isTeacher() && existing().teacherId == request.auth.uid &&
+         existing().studentId.matches('^manual_[0-9]+$'))
       );
     }
   }
