@@ -3,32 +3,57 @@ import React, { useState } from 'react';
 import { Submission, AnalysisResult } from '../types';
 import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
+import { MAX_GRADE, clampGrade, cloneResult } from '../services/gradingService';
 
 interface Props { sub: Submission; onClose: () => void; }
 
 export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
-  const [editedResult, setEditedResult] = useState<AnalysisResult>({ ...sub.ttResult });
+  // Ustoz ilgari tekshirgan bo'lsa, uning o'z tuzatishidan boshlaymiz.
+  const [editedResult, setEditedResult] = useState<AnalysisResult>(
+    () => cloneResult(sub.teacherCorrection ?? sub.ttResult)
+  );
   const [activeTab, setActiveTab] = useState<'preview' | 'edit'>('preview');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleApprove = async () => {
-    const updateData: Partial<Submission> = {
-      teacherCorrection: editedResult,
-      status: 'approved',
-      approvedAt: Date.now()
-    };
-    await DB.updateSubmission(sub.id, updateData);
-    onClose();
+    setSaveError(null);
+    setSaving(true);
+    try {
+      const updateData: Partial<Submission> = {
+        teacherCorrection: { ...editedResult, grade: clampGrade(editedResult.grade) },
+        status: 'approved',
+        approvedAt: Date.now()
+      };
+      await DB.updateSubmission(sub.id, updateData);
+      onClose();
+    } catch (err: any) {
+      // Ilgari xato umuman ushlanmasdi: `await` yiqilsa ham `onClose()`
+      // ishlar va ustoz ishni tasdiqlangan deb o'ylardi. Aslida esa
+      // o'quvchiga hech narsa yetib bormagan bo'lardi.
+      console.error("Tasdiqlashni saqlab bo'lmadi:", err);
+      setSaveError(
+        err?.message || "Saqlab bo'lmadi. Internet aloqangizni tekshirib, qayta urinib ko'ring."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateMistake = (idx: number, field: string, val: any) => {
-    const newMistakes = [...editedResult.mistakes];
-    (newMistakes[idx] as any)[field] = val;
-    setEditedResult({ ...editedResult, mistakes: newMistakes });
+    setEditedResult(prev => ({
+      ...prev,
+      // Faqat o'zgartirilayotgan xato obyekti qayta yaratiladi — asl
+      // obyektga tegilmaydi.
+      mistakes: prev.mistakes.map((m, i) => (i === idx ? { ...m, [field]: val } : m)),
+    }));
   };
 
   const deleteMistake = (idx: number) => {
-    const newMistakes = editedResult.mistakes.filter((_, i) => i !== idx);
-    setEditedResult({ ...editedResult, mistakes: newMistakes });
+    setEditedResult(prev => ({
+      ...prev,
+      mistakes: prev.mistakes.filter((_, i) => i !== idx),
+    }));
   };
 
   const mistakes = editedResult?.mistakes || [];
@@ -82,13 +107,21 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
               <div className="space-y-8 sm:space-y-10 animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-2 sm:space-y-4">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Umumiy baho (0-10)</label>
+                    {/*
+                      Ilgali yozuv "0-10" va `max="10"` edi. Butun ilova esa
+                      1-5 shkalasida ishlaydi: nishonlar "5 baho" ni a'lo deb
+                      hisoblaydi, kartalarda baho bitta belgi bo'lib chiqadi,
+                      AI ham "1-5 ball tizimida" baholaydi. Ustoz 8 yozsa,
+                      nishonlar buzilar va karta ichiga sig'masdi.
+                    */}
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Umumiy baho (0-5)</label>
                     <input 
                       type="number" 
                       min="0" 
-                      max="10" 
+                      max={MAX_GRADE} 
+                      step="1"
                       value={editedResult.grade} 
-                      onChange={e => setEditedResult({...editedResult, grade: Number(e.target.value)})} 
+                      onChange={e => setEditedResult({...editedResult, grade: clampGrade(Number(e.target.value))})} 
                       className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-2xl text-indigo-600 outline-none focus:border-indigo-600 transition-colors" 
                     />
                   </div>
@@ -168,15 +201,40 @@ export const SubmissionReviewer: React.FC<Props> = ({ sub, onClose }) => {
             )}
           </div>
 
-          <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end space-x-4">
-             <button onClick={onClose} className="px-10 py-4 font-bold text-slate-500 hover:text-slate-700 transition-colors">Keyinroq</button>
-             <button 
-               onClick={handleApprove}
-               className="px-12 py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center space-x-3"
-             >
-               <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-               <span>Tasdiqlash va yuborish</span>
-             </button>
+          <div className="p-5 sm:p-8 bg-slate-50 border-t border-slate-100 space-y-4">
+             {saveError && (
+               <div role="alert" className="p-4 bg-rose-50 border-2 border-rose-200 rounded-2xl space-y-1">
+                 <p className="font-black text-slate-900 text-sm">Tasdiqlab bo'lmadi</p>
+                 <p className="text-sm text-slate-600 font-medium">{saveError}</p>
+                 <p className="text-xs text-slate-500 font-medium">Tahrirlaringiz saqlanib turibdi — qaytadan kiritish shart emas.</p>
+               </div>
+             )}
+             <div className="flex justify-end space-x-4">
+               <button
+                 onClick={onClose}
+                 disabled={saving}
+                 className="px-10 py-4 font-bold text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-50"
+               >
+                 Keyinroq
+               </button>
+               <button 
+                 onClick={handleApprove}
+                 disabled={saving}
+                 className="px-12 py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center space-x-3 disabled:opacity-60 disabled:cursor-not-allowed"
+               >
+                 {saving ? (
+                   <>
+                     <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                     <span>Saqlanmoqda...</span>
+                   </>
+                 ) : (
+                   <>
+                     <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                     <span>{saveError ? "Qayta urinish" : "Tasdiqlash va yuborish"}</span>
+                   </>
+                 )}
+               </button>
+             </div>
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { Uploader } from './Uploader';
 import { analyzeDictation } from '../services/geminiService';
 import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
+import { compressImageDataUrl } from '../services/imageService';
 
 interface Props { 
   task: DictationTask; 
@@ -22,45 +23,17 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
   const [croppedImgs, setCroppedImgs] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const resizeImage = (base64: string, maxSide = 1200): Promise<string> => {
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(base64), 5000);
-      const img = new Image();
-      img.onload = () => {
-        clearTimeout(timeout);
-        let { width, height } = img;
-        if (width > maxSide || height > maxSide) {
-          if (width > height) {
-            height = Math.round((height / width) * maxSide);
-            width = maxSide;
-          } else {
-            width = Math.round((width / height) * maxSide);
-            height = maxSide;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, width);
-        canvas.height = Math.max(1, height);
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        } else {
-          resolve(base64);
-        }
-      };
-      img.onerror = () => {
-        clearTimeout(timeout);
-        resolve(base64);
-      };
-      img.src = base64;
-    });
-  };
-
-  const processImage = async (img: string): Promise<string> => {
-    // Rasmni qirqmasdan, original nisbat va sifatini saqlab o'lchamini moslaymiz
-    return await resizeImage(img, 1400);
-  };
+  /**
+   * Rasmni yuborishga tayyorlaydi.
+   *
+   * Ilgari bu yerda alohida `resizeImage` funksiyasi turardi — 1400px ga
+   * kichraytirib, 0.8 sifat bilan JPEG qilardi, lekin HAJMNI tekshirmasdi.
+   * `services/imageService.ts` esa aynan shu ishni maqsadli hajmga
+   * (220KB) yetguncha bosqichma-bosqich qilади. Ikki nusxa logika bo'lishi
+   * esa Faza 2 da tuzatilgan hajm muammosining qaytib kelishiga yo'l
+   * ochardi: bitta joyda tuzatilgani ikkinchisida tuzatilmay qolardi.
+   */
+  const processImage = (img: string): Promise<string> => compressImageDataUrl(img);
 
   const handleSubmit = async () => {
     setSubmitError(null);
@@ -76,20 +49,27 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
     try {
       setLoading(true);
       const finalProcessedImages: string[] = [];
-      const imageUrls: string[] = [];
-      
+
       for (let i = 0; i < imgs.length; i++) {
         setMsg(`${i + 1}-bet tayyorlanmoqda...`);
-        const processed = await processImage(imgs[i]);
-        finalProcessedImages.push(processed);
-
-        setMsg(`${i + 1}-bet yuklanmoqda...`);
-        const url = await DB.uploadImage(processed, `manual_submissions/${user.id}/${Date.now()}_${i}.jpg`);
-        imageUrls.push(url);
+        finalProcessedImages.push(await processImage(imgs[i]));
       }
 
+      // Tahlil YUKLASHDAN OLDIN. Ilgari tartib teskari edi: rasmlar avval
+      // Storage'ga yuklanar, keyin tahlil qilinardi. Tahlil yiqilsa (vaqt
+      // tugashi, kvota), yuklangan fayllar hech qaysi topshiriqqa
+      // bog'lanmasdan Storage'da qolib ketardi — har qayta urinish yana
+      // bir nusxa qoldirardi.
       setMsg('Xatolar tahlil qilinmoqda...');
       const ttResult = await analyzeDictation(finalProcessedImages, task.content);
+
+      const imageUrls: string[] = [];
+      for (let i = 0; i < finalProcessedImages.length; i++) {
+        setMsg(`${i + 1}-bet saqlanmoqda...`);
+        imageUrls.push(
+          await DB.uploadImage(finalProcessedImages[i], `manual_submissions/${user.id}/${Date.now()}_${i}.jpg`)
+        );
+      }
       
       const submission: Omit<Submission, "id"> = {
         taskId: task.id,

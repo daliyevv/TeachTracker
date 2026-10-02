@@ -13,9 +13,12 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [pendingUser, setPendingUser] = useState<any | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('home');
-  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [openBadgesDirectly, setOpenBadgesDirectly] = useState(false);
+  // Profil tugmasi bosilgan sonini sanaymiz. Ilgari bu `boolean` edi va har
+  // bosishda teskarisiga o'zgarardi — natijada nishonlar oynasi faqat
+  // BIR BOSISHDA OCHILIB, keyingisida ochilmasdi. Sanoq esa har doim
+  // o'sadi, ya'ni har bosish yangi hodisa.
+  const [profileOpenCount, setProfileOpenCount] = useState(0);
 
   useEffect(() => {
     // Eski loyihaning to'xtatilgan holati qolgan bo'lsa, tozalaymiz
@@ -87,7 +90,6 @@ export default function App() {
 
   const handleNavigate = (view: ViewType) => {
     setCurrentView(view);
-    setRefreshKey(prev => prev + 1);
   };
 
   const handleUserUpdate = async (updatedUser: User) => {
@@ -125,9 +127,20 @@ export default function App() {
       currentView={currentView} 
       onLogout={handleLogout} 
       onNavigate={handleNavigate}
-      onOpenProfile={() => setOpenBadgesDirectly(prev => !prev)}
+      onOpenProfile={() => setProfileOpenCount(prev => prev + 1)}
     >
-      <div key={refreshKey + user.id + currentView} className="animate-in fade-in duration-500">
+      {/*
+        Ilgari kalit `refreshKey + user.id + currentView` edi. `refreshKey`
+        har navigatsiyada o'sardi, ya'ni panel HAR MARTA noldan qayta
+        yaratilardi: Firestore kuzatuvchilari uzilib qayta ulanardi, ochilgan
+        ish yo'qolardi, yarim yozilgan narsa o'chib ketardi. Hatto shu
+        bo'limning o'ziga qayta bosish ham shunday qilardi.
+
+        Endi kalit faqat foydalanuvchi almashganda o'zgaradi — bo'limlar
+        orasida o'tish holatni saqlab qoladi. Bo'lim o'zgarishini `view`
+        propi orqali paneldagi komponentlar o'zi hal qiladi.
+      */}
+      <div key={user.id} className="animate-in fade-in duration-500">
         {user.role === 'teacher' ? (
           <TeacherDashboard user={user} view={currentView} onUserUpdate={handleUserUpdate} />
         ) : (
@@ -135,7 +148,7 @@ export default function App() {
             user={user} 
             view={currentView} 
             onUserUpdate={handleUserUpdate}
-            openBadgesDirectly={openBadgesDirectly}
+            openProfileSignal={profileOpenCount}
           />
         )}
       </div>

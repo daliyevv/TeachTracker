@@ -21,6 +21,38 @@ const isVerified = (s: Submission) => s.status === 'approved' && !!s.teacherCorr
 const verifiedResult = (s: Submission) => (isVerified(s) ? s.teacherCorrection ?? null : null);
 const verifiedGrade = (s: Submission) => (isVerified(s) ? s.teacherCorrection?.grade ?? 0 : 0);
 
+/** Tasdiqlangan baho. Interfeys ham shu qiymatni ko'rsatishi kerak. */
+export const verifiedGradeOf = verifiedGrade;
+
+/** Tasdiqlangan ishmi — ya'ni bahosiga ishonish mumkinmi. */
+export const isVerifiedSubmission = isVerified;
+
+/**
+ * Nishonlarga ta'sir qiladigan maydonlardan imzo yig'adi.
+ *
+ * Nega kerak: `StudentDashboard` dagi nishon effekti ilgari `[subs.length]`
+ * ga bog'langan edi. Ustoz ishni tasdiqlaganda topshiriqlar SONI
+ * o'zgarmaydi — faqat `status` va `teacherCorrection` o'zgaradi. Natijada
+ * effekt qayta ishlamas va aniqlik nishonlari hech qachon berilmasdi.
+ *
+ * Massiv havolasini (`[subs]`) bog'liqlik qilib qo'yish ham yaramaydi:
+ * Firestore kuzatuvchisi har yangilanishda YANGI massiv beradi, ya'ni
+ * effekt mazmun o'zgarmasa ham qayta ishlab, konfetti otib turardi.
+ */
+export const submissionsSignature = (submissions: Submission[]): string =>
+  submissions
+    .map(s => [
+      s.id,
+      s.status,
+      s.teacherCorrection ? s.teacherCorrection.grade : '-',
+      s.teacherCorrection ? s.teacherCorrection.handwritingScore : '-',
+      s.teacherCorrection ? (s.teacherCorrection.mistakes?.length ?? 0) : '-',
+      s.images && s.images.length > 0 ? 'i' : '',
+      s.files && s.files.length > 0 ? 'f' : '',
+    ].join(':'))
+    .sort()
+    .join('|');
+
 export type BadgeCategory = 'consistency' | 'accuracy';
 export type BadgeTier = 'bronze' | 'silver' | 'gold' | 'platinum';
 
