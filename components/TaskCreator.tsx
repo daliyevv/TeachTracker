@@ -88,14 +88,14 @@ export const TaskCreator: React.FC<Props> = ({ onCancel, onCreate, task }) => {
   }, [audioController]);
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-2xl space-y-8 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-[100] flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white w-full max-w-2xl rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 shadow-2xl space-y-6 sm:space-y-8 max-h-[92vh] overflow-y-auto">
         <div>
-          <h3 className="text-2xl font-black text-slate-900">{task ? 'Vazifani tahrirlash' : 'Yangi topshiriq yaratish'}</h3>
-          <p className="text-slate-500">{task ? 'Vazifa ma\'lumotlarini o\'zgartiring.' : 'O\'quvchilar uchun topshiriq turini va shartlarini belgilang.'}</p>
+          <h3 className="text-xl sm:text-2xl font-black text-slate-900">{task ? 'Vazifani tahrirlash' : 'Yangi topshiriq yaratish'}</h3>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">{task ? 'Vazifa ma\'lumotlarini o\'zgartiring.' : 'O\'quvchilar uchun topshiriq turini va shartlarini belgilang.'}</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
           {[
             { id: 'dictation', label: 'Diktant', icon: Music, color: 'text-indigo-600', bg: 'bg-indigo-50' },
             { id: 'coding', label: 'Dasturlash', icon: Code, color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -104,26 +104,26 @@ export const TaskCreator: React.FC<Props> = ({ onCancel, onCreate, task }) => {
             <button
               key={item.id}
               onClick={() => setType(item.id as TaskType)}
-              className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center space-y-2 ${
+              className={`p-3 sm:p-4 rounded-2xl border-2 transition-all flex flex-col items-center space-y-1.5 sm:space-y-2 min-h-[48px] ${
                 type === item.id 
                   ? 'border-indigo-600 bg-indigo-50/50' 
-                  : 'border-slate-50 hover:border-slate-200 bg-white'
+                  : 'border-slate-100 hover:border-slate-200 bg-white'
               }`}
             >
-              <div className={`w-10 h-10 ${item.bg} ${item.color} rounded-xl flex items-center justify-center`}>
-                <item.icon className="w-5 h-5" />
+              <div className={`w-9 h-9 sm:w-10 sm:h-10 ${item.bg} ${item.color} rounded-xl flex items-center justify-center`}>
+                <item.icon className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <span className="text-xs font-black text-slate-700">{item.label}</span>
+              <span className="text-[11px] sm:text-xs font-black text-slate-700">{item.label}</span>
             </button>
           ))}
         </div>
         
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-600 uppercase tracking-widest ml-1">Mavzu nomi</label>
+        <div className="space-y-4 sm:space-y-6">
+          <div className="space-y-1.5 sm:space-y-2">
+            <label className="text-xs sm:text-sm font-bold text-slate-600 uppercase tracking-widest ml-1">Mavzu nomi</label>
             <input 
               value={title} onChange={e => setTitle(e.target.value)}
-              className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-600 focus:bg-white transition-all outline-none font-medium"
+              className="w-full p-3.5 sm:p-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-indigo-600 focus:bg-white transition-all outline-none font-medium text-sm sm:text-base"
               placeholder="Masalan: Python asoslari yoki Oltin kuz"
             />
           </div>

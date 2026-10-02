@@ -15,28 +15,12 @@ export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [openBadgesDirectly, setOpenBadgesDirectly] = useState(false);
 
   useEffect(() => {
     // Eski loyihaning to'xtatilgan holati qolgan bo'lsa, tozalaymiz
-    if (localStorage.getItem('firebase_suspended') === 'true') {
-      localStorage.removeItem('firebase_suspended');
-      resetServiceStatus();
-    }
-
-    const handleGlobalError = (event: any) => {
-      const reason = event.reason?.message || event.message || "";
-      if (
-        reason.includes('API key has been suspended') ||
-        reason.includes('API_KEY_SERVICE_BLOCKED')
-      ) {
-        console.warn("Firebase API key suspended, switching to local mode:", reason);
-        localStorage.setItem('firebase_suspended', 'true');
-        setServiceDegraded(true);
-      }
-    };
-
-    window.addEventListener('unhandledrejection', handleGlobalError);
-    window.addEventListener('error', handleGlobalError);
+    localStorage.removeItem('firebase_suspended');
+    resetServiceStatus();
 
     if (!auth) {
       setLoading(false);
@@ -66,8 +50,6 @@ export default function App() {
 
     return () => {
       unsubscribe();
-      window.removeEventListener('unhandledrejection', handleGlobalError);
-      window.removeEventListener('error', handleGlobalError);
     };
   }, []);
 
@@ -112,8 +94,6 @@ export default function App() {
     setUser(updatedUser);
   };
 
-  const isDegraded = getServiceStatus();
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -138,32 +118,18 @@ export default function App() {
       currentView={currentView} 
       onLogout={handleLogout} 
       onNavigate={handleNavigate}
+      onOpenProfile={() => setOpenBadgesDirectly(prev => !prev)}
     >
-      {isDegraded && (
-        <div className="fixed bottom-4 right-4 z-50 bg-amber-500 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-2xl flex flex-col space-y-2 max-w-xs border border-amber-400">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-            <span>Mahalliy Rejim Faol</span>
-          </div>
-          <p className="font-normal opacity-90">
-            Firebase API kaliti to'xtatilgan yoki tarmoq xatosi bor. Ilova ma'lumotlarni brauzerda saqlaydi.
-          </p>
-          <button 
-            onClick={() => {
-              resetServiceStatus();
-              window.location.reload();
-            }}
-            className="bg-white text-amber-600 px-3 py-1 rounded-lg hover:bg-amber-50 transition-colors self-start"
-          >
-            Qayta urinish
-          </button>
-        </div>
-      )}
       <div key={refreshKey + user.id + currentView} className="animate-in fade-in duration-500">
         {user.role === 'teacher' ? (
           <TeacherDashboard user={user} view={currentView} onUserUpdate={handleUserUpdate} />
         ) : (
-          <StudentDashboard user={user} view={currentView} onUserUpdate={handleUserUpdate} />
+          <StudentDashboard 
+            user={user} 
+            view={currentView} 
+            onUserUpdate={handleUserUpdate}
+            openBadgesDirectly={openBadgesDirectly}
+          />
         )}
       </div>
     </Layout>

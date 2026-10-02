@@ -108,13 +108,13 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
 
   if (step === 'payment' && selectedPlan) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden"
         >
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <div className="flex justify-between items-center mb-6">
               <button onClick={() => setStep('plans')} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-sm font-bold">
                 <ArrowRight className="w-4 h-4 rotate-180" /> Orqaga
@@ -210,13 +210,13 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto"
       >
-        <div className="p-8 md:p-12">
+        <div className="p-5 sm:p-8 md:p-12">
           <div className="flex justify-between items-start mb-6">
             <div>
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Tarifni tanlang</h2>
@@ -242,12 +242,12 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
             {plans.map((plan) => (
               <div 
                 key={plan.id}
-                className={`relative flex flex-col p-8 rounded-3xl border-2 transition-all ${
-                  plan.popular ? 'border-indigo-600 shadow-xl scale-105 z-10 bg-indigo-50/30' : 'border-gray-100 hover:border-gray-200'
+                className={`relative flex flex-col p-5 sm:p-8 rounded-3xl border-2 transition-all ${
+                  plan.popular ? 'border-indigo-600 shadow-xl md:scale-105 z-10 bg-indigo-50/30' : 'border-gray-100 hover:border-gray-200'
                 }`}
               >
                 {plan.popular && (

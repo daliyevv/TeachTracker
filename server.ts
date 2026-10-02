@@ -106,16 +106,16 @@ function sanitizeMistakeBoundingBox(m: any) {
     ymax = Math.max(0, Math.min(1000, Math.round(ymax)));
     xmax = Math.max(0, Math.min(1000, Math.round(xmax)));
 
-    // Minimum kenglik va balandlikni ta'minlaymiz (ayniqsa tinish belgilari yoki qisqa so'zlar uchun)
-    if (xmax - xmin < 30 && xmax - xmin >= 0) {
+    // Agar juda tor bo'lsa, minimal 8 birlik bilan o'rtasidan ochamiz
+    if (xmax - xmin < 8 && xmax - xmin >= 0) {
       const mid = (xmin + xmax) / 2;
-      xmin = Math.max(0, Math.round(mid - 16));
-      xmax = Math.min(1000, Math.round(mid + 16));
+      xmin = Math.max(0, Math.round(mid - 4));
+      xmax = Math.min(1000, Math.round(mid + 4));
     }
-    if (ymax - ymin < 18 && ymax - ymin >= 0) {
+    if (ymax - ymin < 8 && ymax - ymin >= 0) {
       const mid = (ymin + ymax) / 2;
-      ymin = Math.max(0, Math.round(mid - 10));
-      ymax = Math.min(1000, Math.round(mid + 10));
+      ymin = Math.max(0, Math.round(mid - 4));
+      ymax = Math.min(1000, Math.round(mid + 4));
     }
 
     box = [ymin, xmin, ymax, xmax];
@@ -264,7 +264,7 @@ app.post("/api/gemini/analyze-dictation", async (req, res) => {
     });
 
     const response = await generateWithFallback({
-      preferredModel: 'gemini-3.1-pro-preview',
+      preferredModel: 'gemini-3.8-flash',
       contents: {
         parts: [
           ...imageParts,
