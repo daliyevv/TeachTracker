@@ -1,5 +1,26 @@
 import { Submission, User } from "../types";
 
+/**
+ * Nishon va ball hisobida FAQAT o'qituvchi tasdiqlagan natija ishlatiladi.
+ *
+ * `ttResult` — AI natijasi, lekin uni o'quvchining brauzeri yozadi (server
+ * Admin SDK'siz Firestore'ga yoza olmaydi), shuning uchun unga tayanib
+ * bo'lmaydi. `teacherCorrection` ni esa firestore.rules himoya qiladi:
+ * o'quvchi uni na yaratishda, na keyin yoza oladi.
+ *
+ * `status === 'approved'` sharti — himoyaning ikkinchi qatlami. Qoidalar
+ * birinchi qatlam, bu esa qoidalarda teshik qolsa ham bahoni hisobga
+ * o'tkazmaydi.
+ *
+ * MUHIM: `points` va `badges` maydonlarini o'quvchining brauzeri yozadi va
+ * qoidalar ularning qiymatini tekshira olmaydi (server yozuvchisi yo'q).
+ * Ya'ni ular BEZAK — reyting yoki mukofot uchun ishonchli asos emas.
+ * Ishonchli ko'rsatkich faqat o'qituvchi tasdiqlagan baho.
+ */
+const isVerified = (s: Submission) => s.status === 'approved' && !!s.teacherCorrection;
+const verifiedResult = (s: Submission) => (isVerified(s) ? s.teacherCorrection ?? null : null);
+const verifiedGrade = (s: Submission) => (isVerified(s) ? s.teacherCorrection?.grade ?? 0 : 0);
+
 export type BadgeCategory = 'consistency' | 'accuracy';
 export type BadgeTier = 'bronze' | 'silver' | 'gold' | 'platinum';
 
@@ -139,7 +160,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
     points: 100,
     requirement: "Kamida 1 ta vazifada 5 baho olish",
     checkProgress: (subs) => {
-      const count = subs.filter(s => (s.teacherCorrection?.grade ?? s.ttResult?.grade ?? 0) >= 5).length;
+      const count = subs.filter(s => verifiedGrade(s) >= 5).length;
       return {
         unlocked: count >= 1,
         current: Math.min(1, count),
@@ -160,7 +181,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
     requirement: "0 ta xato bilan 5 baho olish",
     checkProgress: (subs) => {
       const perfect = subs.some(s => {
-        const result = s.teacherCorrection || s.ttResult;
+        const result = verifiedResult(s);
         return (result?.grade ?? 0) >= 5 && (result?.mistakes?.length ?? 99) === 0;
       });
       return {
@@ -183,7 +204,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
     requirement: "2 ta topshiriqda imlo xatosiz yoki kam xato bilan topshirish",
     checkProgress: (subs) => {
       const goodSpellingCount = subs.filter(s => {
-        const result = s.teacherCorrection || s.ttResult;
+        const result = verifiedResult(s);
         const imloMistakes = (result?.mistakes || []).filter(m => m.type === 'imlo');
         return (result?.grade ?? 0) >= 4 && imloMistakes.length <= 1;
       }).length;
@@ -208,7 +229,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
     requirement: "Diktantda 5/5 husnihat bahosi olish",
     checkProgress: (subs) => {
       const hasPerfectHandwriting = subs.some(s => {
-        const result = s.teacherCorrection || s.ttResult;
+        const result = verifiedResult(s);
         return (result?.handwritingScore ?? 0) >= 5;
       });
       return {
@@ -235,7 +256,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
       let maxStreak = 0;
       let currentStreak = 0;
       for (const s of sorted) {
-        const grade = s.teacherCorrection?.grade ?? s.ttResult?.grade ?? 0;
+        const grade = verifiedGrade(s);
         if (grade >= 5) {
           currentStreak++;
           if (currentStreak > maxStreak) maxStreak = currentStreak;
@@ -272,7 +293,7 @@ export const ALL_BADGES: BadgeDefinition[] = [
           percentage: Math.round((subs.length / 3) * 60)
         };
       }
-      const sum = subs.reduce((acc, s) => acc + (s.teacherCorrection?.grade ?? s.ttResult?.grade ?? 0), 0);
+      const sum = subs.reduce((acc, s) => acc + verifiedGrade(s), 0);
       const avg = sum / subs.length;
       const isQualified = avg >= 4.8;
       return {
@@ -340,7 +361,7 @@ export function evaluateBadges(
 
   // Har bir topshiriq uchun 15 ball + baho uchun qo'shimcha ball
   const submissionPoints = submissions.reduce((acc, s) => {
-    const grade = s.teacherCorrection?.grade ?? s.ttResult?.grade ?? 0;
+    const grade = verifiedGrade(s);
     return acc + 15 + Math.round(grade * 10);
   }, 0);
 

@@ -26,13 +26,13 @@ export const TeacherDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
   const [showPricing, setShowPricing] = useState(false);
 
   const refreshData = async () => {
-    const updatedSubs = await DB.getSubmissions();
+    const updatedSubs = await DB.getSubmissions({ teacherId: user.id });
     setSubs(updatedSubs);
   };
 
   useEffect(() => {
     const unsubTasks = DB.subscribeToTasks(setTasks);
-    const unsubSubs = DB.subscribeToSubmissions(setSubs);
+    const unsubSubs = DB.subscribeToSubmissions(setSubs, { teacherId: user.id });
 
     // Stripe success check
     const urlParams = new URLSearchParams(window.location.search);

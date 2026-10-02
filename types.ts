@@ -13,6 +13,8 @@ export interface User {
   isPro?: boolean;
   subscriptionStatus?: 'active' | 'canceled' | 'none';
   stripeCustomerId?: string;
+  /** O'qituvchi roli olingan taklif kodi. Qoidalar shu maydonni tekshiradi. */
+  teacherCode?: string;
 }
 
 export interface Resource {
@@ -82,6 +84,12 @@ export interface Submission {
   id: string;
   taskId: string;
   studentId: string;
+  /**
+   * Vazifa egasi bo'lgan o'qituvchi. Yangi topshiriqlarda majburiy va uning
+   * qiymatini firestore.rules vazifa hujjatiga solishtirib tekshiradi.
+   * Eski yozuvlarda yo'q - ular o'qituvchi panelida ko'rinmaydi.
+   */
+  teacherId?: string;
   studentName?: string; // Ustoz qo'lda tekshirganda o'quvchi ismi
   images?: string[]; // Ko'p sahifali qo'llab-quvvatlash uchun array
   files?: SubmissionFile[];

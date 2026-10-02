@@ -92,6 +92,7 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
       const submission: Omit<Submission, "id"> = {
         taskId: task.id,
         studentId: `manual_${Date.now()}`, // Manual submission uchun maxsus ID
+        teacherId: user.id,
         studentName: studentName.trim(),
         images: imageUrls,
         ttResult: ttResult,

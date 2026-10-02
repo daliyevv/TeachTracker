@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// Firebase Storage qoidalari.
+//
+// Bu fayl ilgari repoda umuman yo'q edi — ya'ni bolalarning qo'lyozma
+// rasmlarini kim o'qiy olishini hech kim ko'rib chiqmagan. Agar Console'da
+// standart `allow read, write: if request.auth != null` turgan bo'lsa, har
+// qanday kirgan foydalanuvchi har qanday o'quvchining rasmini ocha olardi.
+//
+// Eslatma: ilova rasmlarni `getDownloadURL()` qaytargan manzil orqali
+// ko'rsatadi. Bunday manzil ichida token bo'ladi va u xavfsizlik
+// qoidalaridan o'tmaydi. Shuning uchun o'qituvchi o'quvchining ishini
+// ko'rishda davom etadi, garchi quyida o'qish faqat egasiga ochiq bo'lsa ham.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // O'quvchi topshirgan ishlar
+    match /submissions/{uid}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // O'qituvchi qo'lda yuklagan ishlar (uid — o'qituvchining o'zi)
+    match /manual_submissions/{uid}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Qolgan hamma narsa yopiq
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

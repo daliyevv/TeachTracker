@@ -234,6 +234,9 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
       const submission: Omit<Submission, "id"> = {
         taskId: task.id,
         studentId: user.id,
+        // Vazifa egasi. Qoidalar bu qiymatni vazifa hujjatiga solishtiradi,
+        // shuning uchun uni soxta qo'yib bo'lmaydi.
+        teacherId: task.teacherId,
         images: imageUrls.length > 0 ? imageUrls : (allImageSources.length > 0 ? allImageSources : undefined),
         files: files.length > 0 ? files : undefined,
         ttResult: ttResult,
@@ -245,7 +248,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
       await DB.addSubmission(submission);
       
       try {
-        const studentSubs = await DB.getSubmissions(user.id);
+        const studentSubs = await DB.getSubmissions({ studentId: user.id });
         const { updatedUser, newlyUnlockedBadges } = evaluateBadges(studentSubs, user);
         if (newlyUnlockedBadges.length > 0 || updatedUser.points !== user.points) {
           await DB.updateUser(user.id, { badges: updatedUser.badges, points: updatedUser.points });

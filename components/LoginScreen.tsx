@@ -7,13 +7,47 @@ import { setServiceDegraded, getServiceStatus, resetServiceStatus } from '../ser
 
 interface Props {
   onAuthenticated: (user: any) => void;
-  onRoleSelect: (role: UserRole) => void;
+  onRoleSelect: (role: UserRole, teacherCode?: string) => Promise<void> | void;
   pendingUser: any | null;
 }
 
 export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pendingUser }) => {
   const [loading, setLoading] = useState(false);
   const [roleLoading, setRoleLoading] = useState<UserRole | null>(null);
+  const [showTeacherCode, setShowTeacherCode] = useState(false);
+  const [teacherCode, setTeacherCode] = useState('');
+  const [roleError, setRoleError] = useState<string | null>(null);
+
+  const describeRoleError = (err: any) =>
+    err?.code === 'permission-denied'
+      ? "Kod noto'g'ri yoki faol emas. Maktabingizdan tekshirib so'rang."
+      : "Saqlashda xatolik yuz berdi. Qayta urinib ko'ring.";
+
+  const submitTeacher = async () => {
+    const code = teacherCode.trim();
+    if (!code) return;
+    setRoleLoading('teacher');
+    setRoleError(null);
+    try {
+      await onRoleSelect('teacher', code);
+    } catch (err: any) {
+      setRoleError(describeRoleError(err));
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  const submitStudent = async () => {
+    setRoleLoading('student');
+    setRoleError(null);
+    try {
+      await onRoleSelect('student');
+    } catch (err: any) {
+      setRoleError(describeRoleError(err));
+    } finally {
+      setRoleLoading(null);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     if (!isFirebaseConfigured || !auth) {
@@ -115,14 +149,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
             </div>
             <div className="grid grid-cols-1 gap-4">
               <button 
-                onClick={async () => {
-                  setRoleLoading('teacher');
-                  try {
-                    await onRoleSelect('teacher');
-                  } finally {
-                    setRoleLoading(null);
-                  }
-                }}
+                onClick={() => { setRoleError(null); setShowTeacherCode(true); }}
                 disabled={!!roleLoading}
                 className="group p-6 bg-white border-2 border-slate-100 hover:border-indigo-600 rounded-[2rem] transition-all text-left flex items-center space-x-4 hover:shadow-lg hover:shadow-indigo-50 disabled:opacity-50"
               >
@@ -139,14 +166,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
                 </div>
               </button>
               <button 
-                onClick={async () => {
-                  setRoleLoading('student');
-                  try {
-                    await onRoleSelect('student');
-                  } finally {
-                    setRoleLoading(null);
-                  }
-                }}
+                onClick={submitStudent}
                 disabled={!!roleLoading}
                 className="group p-6 bg-white border-2 border-slate-100 hover:border-violet-600 rounded-[2rem] transition-all text-left flex items-center space-x-4 hover:shadow-lg hover:shadow-violet-50 disabled:opacity-50"
               >
@@ -163,6 +183,52 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
                 </div>
               </button>
             </div>
+
+            {showTeacherCode && (
+              <div className="p-5 bg-indigo-50 border-2 border-indigo-100 rounded-[2rem] text-left space-y-3 animate-in fade-in">
+                <div>
+                  <label htmlFor="teacher-code" className="block font-bold text-slate-800 text-sm">
+                    Taklif kodi
+                  </label>
+                  <p className="text-xs text-slate-500 font-medium mt-1">
+                    O'qituvchi bo'lish uchun maktabingiz bergan kodni kiriting.
+                  </p>
+                </div>
+                <input
+                  id="teacher-code"
+                  type="text"
+                  value={teacherCode}
+                  onChange={(e) => { setTeacherCode(e.target.value); setRoleError(null); }}
+                  placeholder="Masalan: MKTB-7A2F9K"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  disabled={!!roleLoading}
+                  className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-indigo-600 focus:outline-none font-medium text-slate-800 min-h-[44px] disabled:opacity-50"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={submitTeacher}
+                    disabled={!teacherCode.trim() || !!roleLoading}
+                    className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-2xl font-bold text-sm min-h-[44px] disabled:opacity-40 hover:bg-indigo-700 transition-colors"
+                  >
+                    {roleLoading === 'teacher' ? 'Tekshirilmoqda...' : 'Tasdiqlash'}
+                  </button>
+                  <button
+                    onClick={() => { setShowTeacherCode(false); setTeacherCode(''); setRoleError(null); }}
+                    disabled={!!roleLoading}
+                    className="px-5 py-3 bg-white text-slate-600 rounded-2xl font-bold text-sm border-2 border-slate-200 min-h-[44px] disabled:opacity-40 hover:border-slate-300 transition-colors"
+                  >
+                    Bekor
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {roleError && (
+              <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3 text-left">
+                {roleError}
+              </p>
+            )}
           </div>
         )}
         

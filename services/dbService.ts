@@ -155,7 +155,37 @@ const LocalDB = {
     } catch (e) {
       console.warn("Local storage write failed:", e);
     }
+  },
+  removeItem: (key: string, id: string) => {
+    try {
+      localStorage.removeItem(`${key}_${id}`);
+    } catch (e) {
+      console.warn("Local storage remove failed:", e);
+    }
   }
+};
+
+/**
+ * Topshiriqlarni kim so'rayotganini bildiradi.
+ *
+ * O'qituvchi endi BARCHA topshiriqlarni emas, faqat o'z vazifalariga
+ * tegishlilarini ko'radi. firestore.rules shu filtr qo'yilganini talab
+ * qiladi, shuning uchun filtrsiz so'rov rad etiladi.
+ */
+export type SubmissionFilter = { studentId?: string; teacherId?: string };
+
+const buildSubmissionQuery = (filter?: SubmissionFilter) => {
+  const col = collection(db, COLLECTIONS.SUBMISSIONS);
+  if (filter?.studentId) return query(col, where("studentId", "==", filter.studentId));
+  if (filter?.teacherId) return query(col, where("teacherId", "==", filter.teacherId));
+  return col;
+};
+
+const filterLocalSubmissions = (filter?: SubmissionFilter): Submission[] => {
+  const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS) as Submission[];
+  if (filter?.studentId) return subs.filter(s => s.studentId === filter.studentId);
+  if (filter?.teacherId) return subs.filter(s => s.teacherId === filter.teacherId);
+  return subs;
 };
 
 export const DB = {
@@ -188,6 +218,10 @@ export const DB = {
   },
 
   setUser: async (user: User) => {
+    // Oldingi mahalliy nusxani eslab qolamiz: agar masofaviy yozuv rad etilsa
+    // (masalan taklif kodi noto'g'ri bo'lsa), mahalliy keshda "o'qituvchi"
+    // bo'lib qolib ketmasin.
+    const previousLocal = LocalDB.getItem(COLLECTIONS.USERS, user.id);
     LocalDB.setItem(COLLECTIONS.USERS, user.id, user);
     // Demo yoki avtorizatsiyasiz foydalanuvchilar faqat LocalDB da saqlanadi
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || user.id.startsWith('local-demo-')) {
@@ -207,14 +241,27 @@ export const DB = {
         isPro: !!user.isPro,
         subscriptionStatus: user.subscriptionStatus || 'none'
       };
+      // O'qituvchi roli taklif kodi bilan beriladi va uni firestore.rules
+      // tekshiradi — shuning uchun kod yozuvga albatta kirishi kerak.
+      // setUser to'liq setDoc qilgani uchun kodni har safar uzatmasak,
+      // birinchi oddiy profil saqlashdayoq audit izi yo'qolardi.
+      if (user.teacherCode) {
+        (sanitizedUser as any).teacherCode = user.teacherCode;
+      }
+
       await setDoc(doc(db, COLLECTIONS.USERS, user.id), sanitizedUser);
     } catch (error: any) {
       console.warn("setUser error:", error);
-      if (error?.code === 'permission-denied') {
-        try {
-          handleFirestoreError(error, OperationType.WRITE, path);
-        } catch {}
+      // Mahalliy keshni oldingi holatiga qaytaramiz
+      if (previousLocal) {
+        LocalDB.setItem(COLLECTIONS.USERS, user.id, previousLocal);
+      } else {
+        LocalDB.removeItem(COLLECTIONS.USERS, user.id);
       }
+      // Xato yuqoriga chiqariladi. Aks holda noto'g'ri taklif kodi yoki
+      // ruxsat xatosi foydalanuvchiga ko'rinmay qoladi va u o'zini
+      // ro'yxatdan o'tgan deb o'ylaydi.
+      throw error;
     }
   },
 
@@ -238,7 +285,11 @@ export const DB = {
 
   // Tasks
   getTasks: async (): Promise<DictationTask[]> => {
-    if (!isFirebaseConfigured || isServiceDegraded) return LocalDB.get(COLLECTIONS.TASKS);
+    // Vazifalar endi autentifikatsiya talab qiladi (firestore.rules), shuning
+    // uchun kirmagan holda so'rov yubormaymiz — submission funksiyalaridagi
+    // kabi. Aks holda bu jimgina permission-denied bo'lib, namuna
+    // vazifalarga tushib ketardi.
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return LocalDB.get(COLLECTIONS.TASKS);
     const path = COLLECTIONS.TASKS;
     try {
       const q = query(collection(db, COLLECTIONS.TASKS), orderBy("createdAt", "desc"));
@@ -323,16 +374,13 @@ export const DB = {
   },
 
   // Submissions
-  getSubmissions: async (studentId?: string): Promise<Submission[]> => {
+  getSubmissions: async (filter?: SubmissionFilter): Promise<Submission[]> => {
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
-      const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-      return studentId ? subs.filter((s: any) => s.studentId === studentId) : subs;
+      return filterLocalSubmissions(filter);
     }
     const path = COLLECTIONS.SUBMISSIONS;
     try {
-      const q = studentId
-        ? query(collection(db, COLLECTIONS.SUBMISSIONS), where("studentId", "==", studentId))
-        : collection(db, COLLECTIONS.SUBMISSIONS);
+      const q = buildSubmissionQuery(filter);
 
       const querySnapshot = await getDocs(q);
       const subs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission));
@@ -347,8 +395,7 @@ export const DB = {
           handleFirestoreError(error, OperationType.LIST, path);
         } catch {}
       }
-      const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-      return studentId ? subs.filter((s: any) => s.studentId === studentId) : subs;
+      return filterLocalSubmissions(filter);
     }
   },
 
@@ -400,7 +447,7 @@ export const DB = {
 
   // Real-time listeners
   subscribeToTasks: (callback: (tasks: DictationTask[]) => void) => {
-    if (!isFirebaseConfigured || isServiceDegraded) {
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
       const interval = setInterval(() => {
         callback(LocalDB.get(COLLECTIONS.TASKS));
       }, 2500);
@@ -422,19 +469,15 @@ export const DB = {
     });
   },
 
-  subscribeToSubmissions: (callback: (subs: Submission[]) => void, studentId?: string) => {
+  subscribeToSubmissions: (callback: (subs: Submission[]) => void, filter?: SubmissionFilter) => {
     if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
       const interval = setInterval(() => {
-        const subs = LocalDB.get(COLLECTIONS.SUBMISSIONS);
-        if (studentId) callback(subs.filter((s: any) => s.studentId === studentId));
-        else callback(subs);
+        callback(filterLocalSubmissions(filter));
       }, 2500);
       return () => clearInterval(interval);
     }
     const path = COLLECTIONS.SUBMISSIONS;
-    const q = studentId
-      ? query(collection(db, COLLECTIONS.SUBMISSIONS), where("studentId", "==", studentId))
-      : collection(db, COLLECTIONS.SUBMISSIONS);
+    const q = buildSubmissionQuery(filter);
 
     return onSnapshot(q, (snapshot) => {
       const subs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission));

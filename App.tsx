@@ -57,7 +57,7 @@ export default function App() {
     setPendingUser(payload);
   };
 
-  const handleRoleSelect = async (role: UserRole) => {
+  const handleRoleSelect = async (role: UserRole, teacherCode?: string) => {
     if (!pendingUser) return;
 
     const userData: User = {
@@ -66,7 +66,8 @@ export default function App() {
       email: pendingUser.email || "",
       role: role,
       avatar: pendingUser.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pendingUser.uid}`,
-      badges: []
+      badges: [],
+      ...(role === 'teacher' && teacherCode ? { teacherCode: teacherCode.trim() } : {})
     };
 
     await DB.setUser(userData);
@@ -90,7 +91,13 @@ export default function App() {
   };
 
   const handleUserUpdate = async (updatedUser: User) => {
-    await DB.setUser(updatedUser);
+    try {
+      await DB.setUser(updatedUser);
+    } catch (err) {
+      // Profil yangilanishi muvaffaqiyatsiz bo'lsa ham interfeys ishlashda
+      // davom etsin. Ro'yxatdan o'tish xatosi esa LoginScreen'da ko'rsatiladi.
+      console.error("Foydalanuvchi profilini saqlab bo'lmadi:", err);
+    }
     setUser(updatedUser);
   };
 
