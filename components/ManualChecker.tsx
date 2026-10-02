@@ -20,6 +20,7 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
   const [studentName, setStudentName] = useState('');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [croppedImgs, setCroppedImgs] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const resizeImage = (base64: string, maxSide = 1200): Promise<string> => {
     return new Promise((resolve) => {
@@ -62,12 +63,13 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
   };
 
   const handleSubmit = async () => {
+    setSubmitError(null);
     if (imgs.length === 0) {
-      alert("Iltimos, diktant rasmini yuklang.");
+      setSubmitError("Iltimos, diktant rasmini yuklang.");
       return;
     }
     if (!studentName.trim()) {
-      alert("Iltimos, o'quvchi ism-familiyasini kiriting.");
+      setSubmitError("Iltimos, o'quvchi ism-familiyasini kiriting.");
       return;
     }
 
@@ -107,7 +109,11 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
       setAnalysisResult(ttResult);
     } catch (e: any) {
       console.error("Manual submission error:", e);
-      alert("Xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.");
+      // Ilgari xato matni butunlay tashlanar va umumiy xabar ko'rsatilardi —
+      // o'qituvchi nima bo'lganini bilmasdi.
+      setSubmitError(
+        e?.message || "Xatolik yuz berdi. Internet aloqangizni tekshirib, qayta urinib ko'ring."
+      );
     } finally {
       setLoading(false);
     }
@@ -183,12 +189,20 @@ export const ManualChecker: React.FC<Props> = ({ task, user, onCancel, onSubmitt
              <Uploader onImagesSelect={setImgs} isLoading={loading} />
            </div>
 
+           {submitError && !loading && (
+             <div role="alert" className="p-5 bg-rose-50 border-2 border-rose-200 rounded-[2rem] space-y-2">
+               <p className="font-black text-slate-900">Saqlab bo'lmadi</p>
+               <p className="text-sm text-slate-600 font-medium">{submitError}</p>
+               <p className="text-xs text-slate-500 font-medium">Rasmlar saqlanib turibdi — qaytadan tanlash shart emas.</p>
+             </div>
+           )}
+
            {imgs.length > 0 && !loading && (
              <button 
                onClick={handleSubmit}
                className="w-full py-4 sm:py-5 bg-indigo-600 text-white rounded-2xl sm:rounded-3xl font-black text-lg sm:text-xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center space-x-3 min-h-[48px]"
              >
-               <span>Tekshirish va Saqlash</span>
+               <span>{submitError ? "Qayta urinish" : "Tekshirish va Saqlash"}</span>
                <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
              </button>
            )}

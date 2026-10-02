@@ -414,12 +414,14 @@ export const DB = {
       return docRef.id;
     } catch (error: any) {
       console.warn("addSubmission error:", error);
-      if (error?.code === 'permission-denied') {
-        try {
-          handleFirestoreError(error, OperationType.CREATE, path);
-        } catch {}
-      }
-      return localId;
+      // Mahalliy nusxani olib tashlaymiz: aks holda saqlanmagan ish
+      // saqlangandek ko'rinib qolardi.
+      const rollback = (LocalDB.get(COLLECTIONS.SUBMISSIONS) as Submission[])
+        .filter(s => s.id !== localId);
+      LocalDB.set(COLLECTIONS.SUBMISSIONS, rollback);
+      // Xato yuqoriga chiqadi. Ilgari u yutilar va o'quvchiga "Qabul qilindi!"
+      // ko'rsatilardi, ish esa hech qayerga bormasdi.
+      throw error;
     }
   },
 
@@ -494,22 +496,38 @@ export const DB = {
   },
 
   // Storage
+  /**
+   * Rasmni Storage'ga yuklab, yuklab olish manzilini qaytaradi.
+   *
+   * Ilgari bu funksiya 2,5 soniyadan keyin base64 ni qaytarardi. Mobil
+   * internetda 2,5 soniya ko'pincha yetmaydi, shuning uchun bu istisno emas,
+   * ODATIY yo'l edi: base64 Firestore hujjatiga tushar, ikki sahifada 1MiB
+   * chegarasi oshar va topshiriq jimgina yo'qolardi.
+   *
+   * Endi timeout 60 soniya va muvaffaqiyatsizlik haqiqiy xato — chaqiruvchi
+   * uni foydalanuvchiga ko'rsatadi.
+   */
   uploadImage: async (base64: string, path: string): Promise<string> => {
+    // Demo yoki avtorizatsiyasiz rejim: Storage yo'q, base64 bilan ishlaymiz
     if (!isFirebaseConfigured || isServiceDegraded || !storage || !auth?.currentUser) {
       return base64;
     }
-    try {
-      const storageRef = ref(storage, path);
-      const uploadPromise = uploadString(storageRef, base64, "data_url");
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error("Storage timeout")), 2500)
-      );
 
+    const storageRef = ref(storage, path);
+    const uploadPromise = uploadString(storageRef, base64, "data_url");
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error("Rasmni yuklash juda uzoq davom etdi")),
+        60000
+      );
+    });
+
+    try {
       await Promise.race([uploadPromise, timeoutPromise]);
       return await getDownloadURL(storageRef);
-    } catch (error: any) {
-      console.warn("Firebase Storage upload fallback to base64:", error?.message || error);
-      return base64;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 };

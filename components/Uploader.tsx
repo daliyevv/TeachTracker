@@ -1,5 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
+import { compressImageDataUrl, readAndCompressImage } from '../services/imageService';
 
 interface UploaderProps {
   onImagesSelect: (base64Array: string[]) => void;
@@ -26,8 +27,9 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
           const blob = items[i].getAsFile();
           if (blob) {
             const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = reader.result as string;
+            reader.onloadend = async () => {
+              // Yuborishdan oldin siqamiz (Vercel 4,5MB chegarasi)
+              const base64 = await compressImageDataUrl(reader.result as string);
               setPreviews(prev => {
                 const newPreviews = [...prev, base64];
                 onImagesSelect(newPreviews);
@@ -47,13 +49,8 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length > 0) {
-      const promises = files.map((file: File) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
-      });
+      // readAndCompressImage faylni o'qib, darhol siqadi
+      const promises = files.map((file: File) => readAndCompressImage(file));
 
       Promise.all(promises).then(base64s => {
         const newPreviews = [...previews, ...base64s];
