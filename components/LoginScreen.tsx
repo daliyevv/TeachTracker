@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
-import { signInWithPopup, signInAnonymously } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { setServiceDegraded, getServiceStatus, resetServiceStatus } from '../services/dbService';
 
 interface Props {
@@ -17,6 +17,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
   const [showTeacherCode, setShowTeacherCode] = useState(false);
   const [teacherCode, setTeacherCode] = useState('');
   const [roleError, setRoleError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const describeRoleError = (err: any) =>
     err?.code === 'permission-denied'
@@ -56,6 +57,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
     }
     try {
       setLoading(true);
+      setAuthError(null);
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       onAuthenticated({
@@ -65,18 +67,38 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
         picture: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`
       });
     } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user') {
-        // Foydalanuvchi popupni yopdi
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        // Foydalanuvchi popupni o'zi yopdi — xato emas
         return;
       }
-      console.warn("Google Auth popup unavailable, continuing smoothly:", err.message);
-      // Iframe yoki cheklov bo'lsa darhol qulay rejimda ochamiz
-      onAuthenticated({
-        uid: "user-" + Math.random().toString(36).substr(2, 6),
-        name: "Foydalanuvchi",
-        email: "foydalanuvchi@teachtracker.uz",
-        picture: `https://api.dicebear.com/7.x/avataaars/svg?seed=user`
-      });
+
+      // MUHIM: ilgari bu yerda tasodifiy uid bilan SOXTA foydalanuvchi
+      // yasalardi. Ilova normal ko'rinardi, lekin Firebase sessiyasi
+      // bo'lmagani uchun topshirilgan ish hech qayerga saqlanmasdi —
+      // o'quvchi "Qabul qilindi!" ni ko'rar, o'qituvchiga esa hech narsa
+      // bormasdi. Endi soxta foydalanuvchi yaratilmaydi.
+      //
+      // Popup mobil brauzerlarda va Telegram/Instagram ichidagi
+      // brauzerlarda tez-tez bloklanadi, shuning uchun redirect'ga o'tamiz.
+      if (
+        err.code === 'auth/popup-blocked' ||
+        err.code === 'auth/operation-not-supported-in-this-environment' ||
+        err.code === 'auth/web-storage-unsupported'
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return; // Sahifa Google'ga o'tadi va qaytib keladi
+        } catch (redirectErr: any) {
+          console.error("Redirect bilan kirish ham ishlamadi:", redirectErr);
+        }
+      }
+
+      console.error("Google bilan kirishda xato:", err);
+      setAuthError(
+        err.code === 'auth/network-request-failed'
+          ? "Internet aloqasi yo'q. Ulanishni tekshirib, qayta urinib ko'ring."
+          : "Google bilan kirib bo'lmadi. Qayta urinib ko'ring."
+      );
     } finally {
       setLoading(false);
     }
@@ -136,6 +158,12 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
               </button>
             </div>
             
+            {authError && (
+              <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3">
+                {authError}
+              </p>
+            )}
+
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
               * Demo rejimida "O'quvchi" bo'lib diktant topshirib, keyin "Ustoz" bo'lib uni tekshirishingiz mumkin.
             </p>

@@ -18,7 +18,11 @@ const stripe = stripeSecretKey
   : null;
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+// Vercel serverless funksiyasi so'rov tanasini 4,5MB da kesadi. 50mb yozish
+// yolg'on va'da edi: undan katta so'rov Express'ga yetib ham kelmasdi va
+// foydalanuvchi tushunarsiz xato olardi. Endi chegara platformanikidan
+// pastroq, shuning uchun ilovaning o'z JSON xatosi qaytadi.
+app.use(express.json({ limit: '4mb' }));
 
 // Gemini Setup
 const getApiKey = () => {
@@ -522,6 +526,25 @@ app.post("/api/webhook", express.raw({ type: 'application/json' }), async (req, 
   } catch (err: any) {
     res.status(400).send(`Webhook Error: ${err.message}`);
   }
+});
+
+// Xato ishlovchisi barcha route'lardan KEYIN turishi shart.
+// Ilgari u umuman yo'q edi: body-parser xatosi Express'ning standart HTML
+// sahifasiga aylanar, u esa `alert()` oynasida xom HTML bo'lib ko'rinardi.
+app.use((err: any, _req: any, res: any, next: any) => {
+  if (res.headersSent) return next(err);
+
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({
+      error: "Yuborilgan ma'lumot juda katta. Rasmlarni kamroq yoki kichikroq qilib yuboring.",
+    });
+  }
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: "So'rov formati noto'g'ri." });
+  }
+
+  console.error('Kutilmagan server xatosi:', err);
+  res.status(500).json({ error: "Serverda xatolik yuz berdi." });
 });
 
 export default app;

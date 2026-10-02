@@ -7,6 +7,7 @@ import { DB } from '../services/dbService';
 import { ResultView } from './ResultView';
 import { dictateText, AudioController } from '../services/ttsService';
 import { evaluateBadges } from '../services/badgeService';
+import { compressImageDataUrl, mimeTypeFromDataUrl } from '../services/imageService';
 import { FileCode, Upload, X, CheckCircle2, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
 
 interface Props { 
@@ -24,6 +25,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
   const [msg, setMsg] = useState('');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [croppedImgs, setCroppedImgs] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isDictating, setIsDictating] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(Math.max(1.0, task.minPlaybackSpeed || 1.0));
@@ -120,14 +122,18 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
             language: languageMap[extension] || 'text'
           }]);
         } else if (isImg) {
-          // Rasmni imgs ro'yxatiga ham qo'shamiz, natijada tahlil va ko'rsatish to'g'ri ishlaydi
-          setImgs(prev => [...prev, result]);
-          const base64 = result.split(',')[1] || result;
-          setFiles(prev => [...prev, {
-            name: file.name,
-            data: base64,
-            mimeType: file.type || 'image/jpeg'
-          }]);
+          // Rasmni yuborishdan OLDIN siqamiz: Vercel so'rov tanasi 4,5MB,
+          // Firestore hujjati esa 1MiB bilan cheklangan. Telefon rasmi
+          // siqilmasa, ikkalasiga ham sig'maydi.
+          compressImageDataUrl(result).then(compressed => {
+            setImgs(prev => [...prev, compressed]);
+            const base64 = compressed.split(',')[1] || compressed;
+            setFiles(prev => [...prev, {
+              name: file.name,
+              data: base64,
+              mimeType: mimeTypeFromDataUrl(compressed, file.type || 'image/jpeg')
+            }]);
+          });
         } else {
           const base64 = result.split(',')[1] || result;
           setFiles(prev => [...prev, {
@@ -191,6 +197,7 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
   };
 
   const handleSubmit = async () => {
+    setSubmitError(null);
     if (imgs.length === 0 && files.length === 0) return;
     try {
       setLoading(true);
@@ -262,8 +269,11 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
       setAnalysisResult(ttResult);
     } catch (e: any) {
       console.error("Submission error:", e);
-      const errorMsg = e.message || "Xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.";
-      alert(errorMsg);
+      // alert() o'rniga ekranda ko'rsatamiz. Rasmlar joyida qoladi, shuning
+      // uchun o'quvchi hammasini qaytadan tanlamasdan qayta urinishi mumkin.
+      setSubmitError(
+        e?.message || "Xatolik yuz berdi. Internet aloqangizni tekshirib, qayta urinib ko'ring."
+      );
     } finally {
       setLoading(false);
     }
@@ -462,13 +472,28 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
              </div>
            )}
 
+           {submitError && !loading && (
+             <div role="alert" className="mt-6 p-5 bg-rose-50 border-2 border-rose-200 rounded-[2rem] space-y-3">
+               <div className="flex items-start space-x-3">
+                 <div className="w-10 h-10 shrink-0 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center font-black text-xl">!</div>
+                 <div>
+                   <p className="font-black text-slate-900">Topshirib bo'lmadi</p>
+                   <p className="text-sm text-slate-600 font-medium mt-1">{submitError}</p>
+                 </div>
+               </div>
+               <p className="text-xs text-slate-500 font-medium">
+                 Rasmlaringiz saqlanib turibdi — qaytadan tanlash shart emas.
+               </p>
+             </div>
+           )}
+
            {(imgs.length > 0 || files.length > 0) && !loading && (
              <div className="pt-6 border-t border-slate-100 flex flex-col items-center">
                <button 
                  onClick={handleSubmit}
                  className="w-full py-4 sm:py-5 bg-indigo-600 text-white rounded-2xl sm:rounded-3xl font-black text-lg sm:text-xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center space-x-3 min-h-[48px]"
                >
-                 <span>Tekshirishga yuborish</span>
+                 <span>{submitError ? "Qayta urinish" : "Tekshirishga yuborish"}</span>
                  <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 5l7 7m0 0l-7 7m7-7H3" /></svg>
                </button>
              </div>
