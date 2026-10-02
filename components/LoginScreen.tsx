@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
 import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { newDemoUid, isDemoUid } from '../services/demoMode';
 import {
   describeAuthError,
   isUserCancelled,
@@ -58,6 +59,43 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
     setRoleError(null);
     try {
       await onRoleSelect('teacher', code);
+    } catch (err: any) {
+      setRoleError(describeRoleError(err));
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  /**
+   * Demo rejimidamizmi.
+   *
+   * Demo foydalanuvchi Firestore'ga hech narsa yozmaydi (sessiya yo'q),
+   * ya'ni taklif kodini tekshiradigan qoida ham umuman ishga tushmaydi.
+   * Shuning uchun demo rejimida kod so'rash HECH QANDAY himoya bermaydi —
+   * faqat yo'lni to'sadi.
+   */
+  const isDemo = isDemoUid(pendingUser?.uid);
+
+  /**
+   * "Men Ustozman" bosilganda.
+   *
+   * Haqiqiy hisobda taklif kodi so'raladi (Faza 1: rolni o'zi o'ziga
+   * ko'tarishni to'xtatish uchun). Demo rejimida esa darhol o'tadi:
+   * ilgari bu yerda ham kod so'ralardi va demo foydalanuvchi "maktabingiz
+   * bergan kodni kiriting" degan yozuvni ko'rardi — demo rejimida esa
+   * na maktab, na kod bor. Ya'ni demo rejimida ustoz bo'lib sinab
+   * ko'rishning IMKONI YO'Q edi, garchi tugma ostida "keyin Ustoz bo'lib
+   * uni tekshirishingiz mumkin" deb yozilgan bo'lsa ham.
+   */
+  const chooseTeacher = async () => {
+    setRoleError(null);
+    if (!isDemo) {
+      setShowTeacherCode(true);
+      return;
+    }
+    setRoleLoading('teacher');
+    try {
+      await onRoleSelect('teacher');
     } catch (err: any) {
       setRoleError(describeRoleError(err));
     } finally {
@@ -129,7 +167,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
 
   const handleDemoLogin = () => {
     onAuthenticated({
-      uid: "demo-user-" + Math.random().toString(36).substr(2, 6),
+      uid: newDemoUid(),
       name: "Demo Foydalanuvchi",
       email: "demo@teachtracker.uz",
       picture: `https://api.dicebear.com/7.x/avataaars/svg?seed=demo-user`
@@ -208,7 +246,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
             </div>
             <div className="grid grid-cols-1 gap-4">
               <button 
-                onClick={() => { setRoleError(null); setShowTeacherCode(true); }}
+                onClick={chooseTeacher}
                 disabled={!!roleLoading}
                 className="group p-6 bg-white border-2 border-slate-100 hover:border-indigo-600 rounded-[2rem] transition-all text-left flex items-center space-x-4 hover:shadow-lg hover:shadow-indigo-50 disabled:opacity-50"
               >
@@ -221,7 +259,9 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
                 </div>
                 <div>
                   <p className="font-bold text-slate-800">Men Ustozman</p>
-                  <p className="text-xs text-slate-400 font-medium">Vazifa yaratish va tekshirish</p>
+                  <p className="text-xs text-slate-400 font-medium">
+                    {isDemo ? "Vazifa yaratish va tekshirish" : "Taklif kodi talab qilinadi"}
+                  </p>
                 </div>
               </button>
               <button 

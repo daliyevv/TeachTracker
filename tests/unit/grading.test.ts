@@ -277,3 +277,52 @@ test('redirect zaxirasi faqat popup ishlamaganda ishlaydi', async () => {
   assert.equal(shouldFallBackToRedirect({ code: 'auth/unauthorized-domain' }), false);
   assert.equal(shouldFallBackToRedirect({ code: 'auth/network-request-failed' }), false);
 });
+
+// --- demo rejimi ---
+
+test('demo uid yaratilishi va tekshirilishi MOS keladi', async () => {
+  const { newDemoUid, isDemoUid, DEMO_UID_PREFIX } = await import('../../services/demoMode.ts');
+
+  // Aynan shu yerda nuqson bor edi: LoginScreen `demo-user-` bilan
+  // yaratar, dbService esa `local-demo-` ni tekshirardi — ya'ni tekshiruv
+  // HECH QACHON ishlamasdi.
+  const uid = newDemoUid();
+  assert.ok(uid.startsWith(DEMO_UID_PREFIX));
+  assert.equal(isDemoUid(uid), true, 'yaratilgan uid tekshiruvdan o\'tishi shart');
+
+  // Haqiqiy Firebase uid demo deb hisoblanmasligi kerak.
+  assert.equal(isDemoUid('kJ3nX9aBcDeFgHiJkLmNoPqRsTuV'), false);
+  assert.equal(isDemoUid('local-demo-abc'), false);
+  assert.equal(isDemoUid(''), false);
+  assert.equal(isDemoUid(undefined), false);
+  assert.equal(isDemoUid(null), false);
+  assert.equal(isDemoUid(123), false);
+});
+
+test('har demo uid alohida bo\'ladi', async () => {
+  const { newDemoUid } = await import('../../services/demoMode.ts');
+  const ids = new Set(Array.from({ length: 50 }, () => newDemoUid()));
+  // Bir xil uid ikki demo sessiyani aralashtirib yuborardi.
+  assert.ok(ids.size > 45, `kutilgan ~50 xil uid, olindi ${ids.size}`);
+});
+
+test("dbService demo foydalanuvchini Firestore'ga yozmaydi", async () => {
+  // Kodda eski, ishlamaydigan prefiks qolib ketmaganini tekshiramiz.
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('services/dbService.ts', 'utf8');
+  assert.ok(!src.includes('local-demo-'), "eski 'local-demo-' prefiksi qolib ketgan");
+  assert.ok(src.includes('isDemoUid('), 'demo tekshiruvi umumiy funksiyadan kelishi kerak');
+});
+
+test("demo rejimida taklif kodi so'ralmaydi", async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('components/LoginScreen.tsx', 'utf8');
+  // "Men Ustozman" tugmasi to'g'ridan-to'g'ri kod panelini ochmasligi kerak.
+  assert.ok(
+    !src.includes('onClick={() => { setRoleError(null); setShowTeacherCode(true); }}'),
+    "tugma hamma holatda kod panelini ochmasligi kerak"
+  );
+  assert.ok(src.includes('const isDemo = isDemoUid('), 'demo holati aniqlanishi kerak');
+  // Demo bo'lmasa kod panelini ochadi, demo bo'lsa darhol o'tadi.
+  assert.ok(src.includes('if (!isDemo) {'), 'demo va haqiqiy hisob ajratilishi kerak');
+});

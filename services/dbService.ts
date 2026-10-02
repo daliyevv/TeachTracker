@@ -13,6 +13,7 @@ import {
   onSnapshot
 } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured, getStorageLazy } from "./firebase";
+import { isDemoUid } from "./demoMode";
 import { User, DictationTask, Submission } from "../types";
 
 export enum OperationType {
@@ -210,7 +211,7 @@ const filterLocalSubmissions = (filter?: SubmissionFilter): Submission[] => {
 export const DB = {
   // User
   getUser: async (uid: string): Promise<User | null> => {
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || uid.startsWith('local-demo-')) {
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(uid)) {
       return LocalDB.getItem(COLLECTIONS.USERS, uid);
     }
     const path = `${COLLECTIONS.USERS}/${uid}`;
@@ -243,7 +244,7 @@ export const DB = {
     const previousLocal = LocalDB.getItem(COLLECTIONS.USERS, user.id);
     LocalDB.setItem(COLLECTIONS.USERS, user.id, user);
     // Demo yoki avtorizatsiyasiz foydalanuvchilar faqat LocalDB da saqlanadi
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || user.id.startsWith('local-demo-')) {
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(user.id)) {
       return;
     }
     const path = `${COLLECTIONS.USERS}/${user.id}`;
@@ -288,7 +289,7 @@ export const DB = {
     const cached = LocalDB.getItem(COLLECTIONS.USERS, uid);
     if (cached) LocalDB.setItem(COLLECTIONS.USERS, uid, { ...cached, ...data });
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || uid.startsWith('local-demo-')) return;
+    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(uid)) return;
     const path = `${COLLECTIONS.USERS}/${uid}`;
     try {
       await updateDoc(doc(db, COLLECTIONS.USERS, uid), data);
