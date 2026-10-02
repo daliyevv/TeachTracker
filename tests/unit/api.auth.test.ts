@@ -125,18 +125,33 @@ test("GEMINI_API_KEY yo'q bo'lsa aniq xato qaytadi, umumiy emas", async () => {
   assert.ok(guarded >= 6, `requireGemini yetarli joyda yo'q (${guarded})`);
 });
 
-test('kalit rad etilgan holat kalit yo\'qligidan AJRATILGAN', async () => {
+test('kalit YO\'Q va kalit RAD ETILGAN holatlari ajratilgan', async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync('server/app.ts', 'utf8');
-  // Ikki holat ikki xil xabar olishi kerak — ilgari ikkisi ham bir xil edi.
-  assert.ok(src.includes('kalitni qabul qilmadi'), 'rad etilgan kalit uchun alohida xabar');
-  // Umumiy "xizmat ishlamayapti" matni endi JAVOB sifatida
-  // qaytarilmasligi kerak. Izohlarda eslatma sifatida qolishi normal,
-  // shuning uchun faqat `error:` qiymatlarini tekshiramiz.
+
+  // Kalit yo'qligi — `requireGemini` orqali, Gemini'ga chaqiruvsiz.
+  assert.ok(src.includes('requireGemini'), 'kalit yo\'qligi uchun himoya bo\'lishi kerak');
+
+  // Kalit rad etilgani — tasniflovchi modul orqali. Ilgari bu yerda bitta
+  // qotirilgan xabar turardi va hamma sababni "kalitni tekshiring" deb
+  // ayblardi; sabablarni ajratish endi geminiErrors.ts da.
+  assert.ok(
+    src.includes('describeGeminiError'),
+    'sozlama xatolari tasniflovchi modul orqali o\'tishi kerak'
+  );
+
+  // Umumiy "xizmat ishlamayapti" matni javob sifatida qaytarilmasligi
+  // kerak (izohlarda eslatma bo'lishi normal).
   const errorValues = [...src.matchAll(/error:\s*\n?\s*"([^"]*)"/g)].map(m => m[1]);
-  assert.ok(errorValues.length > 0, 'javob matnlari topilishi kerak');
   assert.ok(
     !errorValues.some(v => v.includes('Xizmat vaqtincha ishlamayapti')),
     "umumiy 'xizmat ishlamayapti' xabari javob sifatida qolmasligi kerak"
   );
+
+  // Tasniflash haqiqatan ishlashini modulning o'zida tekshiramiz.
+  const { describeGeminiError } = await import('../../server/geminiErrors.ts');
+  const invalid = describeGeminiError(400, 'API key not valid');
+  const disabled = describeGeminiError(403, 'has not been used in project 1 before or it is disabled');
+  assert.ok(invalid && disabled);
+  assert.notEqual(invalid.message, disabled.message, 'ikki sabab bir xil xabar bermasligi kerak');
 });
