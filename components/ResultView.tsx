@@ -32,10 +32,32 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
       .filter(Boolean);
   }, [files]);
 
+  /**
+   * Ko'rsatiladigan rasmlar.
+   *
+   * MUHIM: `images` ning TARTIBI va INDEKSLARI o'zgarmasligi kerak. Sun'iy
+   * intellekt har xatoga `pageIndex` beradi va u aynan shu massivdagi
+   * o'rinni bildiradi.
+   *
+   * Ilgari bu yerda `Array.from(new Set(allImages))` turardi. Takrorlangan
+   * rasm bo'lsa (masalan o'quvchi bir varaqni ikki marta yuklasa), Set uni
+   * olib tashlar va KEYINGI hamma sahifaning indeksi SURILIB ketardi —
+   * qizil chiziqlar butunlay boshqa varaqqa tushardi.
+   *
+   * Endi `images` butunligicha qoladi; `files` ichidan chiqqan rasmlardan
+   * esa faqat `images` da yo'qlari qo'shiladi (ular bir xil rasmning
+   * nusxasi bo'lishi mumkin).
+   */
   const displayImages: string[] = useMemo(() => {
-    const allImages = [...(images || []), ...extractedFileImages].filter(Boolean);
-    if (allImages.length === 0) return EMPTY_IMAGES;
-    return Array.from(new Set(allImages));
+    const base = (images || []).filter(Boolean);
+    const seen = new Set(base);
+    const extras = extractedFileImages.filter(src => {
+      if (!src || seen.has(src)) return false;
+      seen.add(src);
+      return true;
+    });
+    const all = [...base, ...extras];
+    return all.length === 0 ? EMPTY_IMAGES : all;
   }, [images, extractedFileImages]);
 
   const nonImageFiles = useMemo(() => {
@@ -87,6 +109,20 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
 
   const viewMode = selectedMode || (displayImages.length > 0 ? 'images' : 'files');
   const mistakes = result?.mistakes || [];
+
+  /**
+   * Xato qaysi sahifada ekanini qaytaradi.
+   *
+   * `pageIndex` chegaradan chiqib ketgan bo'lsa (AI yo'q sahifani
+   * ko'rsatsa yoki ustoz qo'lda katta son yozsa) 0 ga tushamiz. Ilgari
+   * bunday xatoning chizig'i HECH QAYSI sahifada ko'rinmasdi: `pIndex`
+   * hech qanday `activePage` ga teng bo'lmay qolardi.
+   */
+  const pageOf = (m: { pageIndex?: number }): number => {
+    const raw = typeof m.pageIndex === 'number' && Number.isFinite(m.pageIndex) ? m.pageIndex : 0;
+    if (displayImages.length === 0) return 0;
+    return raw >= 0 && raw < displayImages.length ? raw : 0;
+  };
 
   useEffect(() => {
     if (result && result.grade >= 4) {
@@ -144,7 +180,7 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
     const mistake = result?.mistakes?.[index];
     if (!mistake) return;
     if (displayImages.length > 0) {
-      const page = mistake.pageIndex !== undefined && mistake.pageIndex < displayImages.length ? mistake.pageIndex : 0;
+      const page = pageOf(mistake);
       setActivePage(page);
       setSelectedMode('images');
     }
@@ -289,7 +325,7 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
               </defs>
 
               {mistakes.filter(m => {
-                const pIndex = m.pageIndex !== undefined ? m.pageIndex : 0;
+                const pIndex = pageOf(m);
                 const isCurrentPage = displayImages.length === 1 || pIndex === activePage;
                 const box = (m as any).box_2d || m.boundingBox;
                 const hasValidCoords = Array.isArray(box) && box.length === 4 && 
@@ -536,7 +572,7 @@ export const ResultView: React.FC<Props> = ({ result, images = EMPTY_IMAGES, fil
             >
               <div className="flex flex-col items-center shrink-0">
                 <span className="text-xl sm:text-2xl font-black text-slate-300 font-mono">{(i+1).toString().padStart(2, '0')}</span>
-                {displayImages.length > 0 && <span className="text-[8px] font-black text-slate-400 mt-0.5 sm:mt-1 uppercase tracking-tighter">{(m.pageIndex !== undefined ? m.pageIndex : 0) + 1}-bet</span>}
+                {displayImages.length > 0 && <span className="text-[8px] font-black text-slate-400 mt-0.5 sm:mt-1 uppercase tracking-tighter">{pageOf(m) + 1}-bet</span>}
               </div>
               <div className="flex-grow min-w-0">
                 <div className="flex flex-wrap items-center gap-2 sm:space-x-3 mb-2">

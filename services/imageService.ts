@@ -100,3 +100,32 @@ export const readAndCompressImage = (file: File): Promise<string> =>
     };
     reader.readAsDataURL(file);
   });
+
+/**
+ * Bir topshiriqdagi rasmlar soni chegarasi.
+ *
+ * Vercel so'rov tanasi 4,5MB bilan cheklangan. Har rasm siqilgandan keyin
+ * ~220KB, base64 esa hajmni ~33% oshiradi (~293KB). 12 sahifa ~3,5MB —
+ * zahira bilan sig'adi. Ilgari chegara umuman yo'q edi: o'quvchi 30 sahifa
+ * tanlab, so'rov platformada kesilib, tushunarsiz xato olardi.
+ */
+export const MAX_PAGES = 12;
+
+/**
+ * Ro'yxatga chegaradan oshmaydigan qismini qo'shadi.
+ *
+ * `rejected` — joy yetmaganligi uchun qabul qilinmagan rasmlar soni.
+ * Chaqiruvchi shunga qarab foydalanuvchiga xabar beradi.
+ */
+export const appendWithinLimit = (
+  current: string[],
+  incoming: string[],
+  max = MAX_PAGES
+): { next: string[]; rejected: number } => {
+  const room = Math.max(0, max - current.length);
+  const accepted = incoming.slice(0, room);
+  return {
+    next: accepted.length > 0 ? [...current, ...accepted] : current,
+    rejected: incoming.length - accepted.length,
+  };
+};

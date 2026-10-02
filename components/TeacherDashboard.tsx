@@ -30,6 +30,19 @@ export const TeacherDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
     setSubs(updatedSubs);
   };
 
+  /**
+   * Bo'lim o'zgarganda ochiq oynalarni yopamiz. Ilgari buni App.tsx dagi
+   * `key` qilardi, lekin u butun panelni qayta yaratar va Firestore
+   * kuzatuvchilarini ham uzib qo'yardi.
+   */
+  useEffect(() => {
+    setActiveSub(null);
+    setManualCheckTask(null);
+    setEditingTask(null);
+    setShowCreator(false);
+    setShowPricing(false);
+  }, [view]);
+
   useEffect(() => {
     const unsubTasks = DB.subscribeToTasks(setTasks);
     const unsubSubs = DB.subscribeToSubmissions(setSubs, { teacherId: user.id });

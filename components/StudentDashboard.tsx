@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, DictationTask, Submission, ViewType } from '../types';
 import { DB } from '../services/dbService';
 import { DictationWorker } from './DictationWorker';
@@ -8,7 +8,7 @@ import { ResourceLibrary } from './ResourceLibrary';
 import { GamesHub } from './GamesHub';
 import { BadgesModal } from './BadgesModal';
 import { BadgesShowcase } from './BadgesShowcase';
-import { evaluateBadges, BadgeDefinition, calculateUserRank } from '../services/badgeService';
+import { evaluateBadges, BadgeDefinition, calculateUserRank, verifiedGradeOf, submissionsSignature } from '../services/badgeService';
 import confetti from 'canvas-confetti';
 import { FileCode, PenTool, BookOpen, Trophy, Sparkles, X, Award } from 'lucide-react';
 
@@ -16,22 +16,40 @@ interface Props {
   user: User;
   view?: ViewType;
   onUserUpdate?: (user: User) => void;
-  openBadgesDirectly?: boolean;
+  /**
+   * Profil tugmasi bosilgan sonini bildiradi. Har bosishda qiymat o'sadi.
+   * Ilgari bu `boolean` edi va App uni teskarisiga o'zgartirardi — natijada
+   * oyna faqat har ikkinchi bosishda ochilardi.
+   */
+  openProfileSignal?: number;
 }
 
-export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserUpdate, openBadgesDirectly }) => {
+export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserUpdate, openProfileSignal = 0 }) => {
   const [tasks, setTasks] = useState<DictationTask[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
   const [activeTask, setActiveTask] = useState<DictationTask | null>(null);
   const [viewResult, setViewResult] = useState<Submission | null>(null);
-  const [isBadgesModalOpen, setIsBadgesModalOpen] = useState(!!openBadgesDirectly);
+  const [isBadgesModalOpen, setIsBadgesModalOpen] = useState(false);
   const [celebrationBadge, setCelebrationBadge] = useState<BadgeDefinition | null>(null);
 
   useEffect(() => {
-    if (openBadgesDirectly) {
+    if (openProfileSignal > 0) {
       setIsBadgesModalOpen(true);
     }
-  }, [openBadgesDirectly]);
+  }, [openProfileSignal]);
+
+  /**
+   * Bo'lim o'zgarganda ochiq oynalarni yopamiz.
+   *
+   * Ilgari buni App.tsx dagi `key` qilardi: har navigatsiyada butun panel
+   * noldan qayta yaratilar va ochiq oyna o'zi yo'qolardi. Lekin u bilan
+   * birga Firestore kuzatuvchilari ham uzilib qayta ulanardi, ya'ni har
+   * bosish uchun ortiqcha o'qish. Endi faqat kerakli qismi qoldi.
+   */
+  useEffect(() => {
+    setActiveTask(null);
+    setViewResult(null);
+  }, [view]);
 
   useEffect(() => {
     const unsubTasks = DB.subscribeToTasks(setTasks);
@@ -43,30 +61,80 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
     };
   }, [user.id]);
 
+  /**
+   * Nishonlar o'zgarishini kuzatish uchun imzo.
+   *
+   * Ilgari bu effekt `[subs.length]` ga bog'langan edi. Lekin nishonlar
+   * (Faza 1 dan beri) FAQAT o'qituvchi tasdiqlagan bahoga qaraydi, ustoz
+   * tasdiqlaganda esa topshiriqlar SONI o'zgarmaydi — faqat ichidagi
+   * `status` va `teacherCorrection` o'zgaradi. Ya'ni effekt qayta
+   * ishlamas va aniqlik nishonlari HECH QACHON berilmasdi.
+   *
+   * Imzo esa aynan nishonlarga ta'sir qiladigan maydonlardan yig'iladi.
+   */
+  const subsSignature = useMemo(() => submissionsSignature(subs), [subs]);
+
   // Avtomatik nishonlar va yutuqlarni tekshirish (Izchil topshirish va Yuqori aniqlik)
   useEffect(() => {
-    if (subs.length > 0) {
-      const { updatedUser, newlyUnlockedBadges } = evaluateBadges(subs, user);
-      if (newlyUnlockedBadges.length > 0) {
-        confetti({
-          particleCount: 160,
-          spread: 90,
-          origin: { y: 0.5 },
-          colors: ['#f59e0b', '#6366f1', '#10b981', '#ec4899']
-        });
-        setCelebrationBadge(newlyUnlockedBadges[0]);
-        DB.updateUser(user.id, { badges: updatedUser.badges, points: updatedUser.points });
-        onUserUpdate?.(updatedUser);
-      }
+    if (subs.length === 0) return;
+
+    const { updatedUser, newlyUnlockedBadges } = evaluateBadges(subs, user);
+
+    if (newlyUnlockedBadges.length > 0) {
+      confetti({
+        particleCount: 160,
+        spread: 90,
+        origin: { y: 0.5 },
+        colors: ['#f59e0b', '#6366f1', '#10b981', '#ec4899']
+      });
+      setCelebrationBadge(newlyUnlockedBadges[0]);
     }
-  }, [subs.length]);
+
+    // Ball yangi nishonsiz ham o'sadi (har topshiriq uchun ball bor), shuning
+    // uchun saqlash yangi nishon shartiga bog'lanmaydi. Ilgari bog'langan edi
+    // va ballar hech qachon saqlanmasdi.
+    const badgesChanged = (updatedUser.badges || []).length !== (user.badges || []).length;
+    const pointsChanged = (updatedUser.points || 0) !== (user.points || 0);
+    if (badgesChanged || pointsChanged) {
+      DB.updateUser(user.id, { badges: updatedUser.badges, points: updatedUser.points })
+        .catch(err => console.warn("Nishonlarni saqlab bo'lmadi:", err));
+      onUserUpdate?.(updatedUser);
+    }
+  }, [subsSignature]);
 
   const handleSubmitted = () => {
     setActiveTask(null);
   };
 
-  const pendingTasks = tasks.filter(t => !subs.find(s => s.taskId === t.id));
-  const completedSubs = subs.filter(s => s.status === 'approved');
+  /**
+   * O'quvchiga faqat OCHIQ vazifalar ko'rsatiladi. Ilgari `status` umuman
+   * tekshirilmasdi: ustoz vazifani yopsa ham o'quvchi ro'yxatda ko'rar,
+   * "Boshlash" ni bosib ish yuborardi.
+   */
+  const openTasks = useMemo(() => tasks.filter(t => t.status !== 'closed'), [tasks]);
+  const pendingTasks = useMemo(
+    () => openTasks.filter(t => !subs.some(s => s.taskId === t.id)),
+    [openTasks, subs]
+  );
+  const completedSubs = useMemo(() => subs.filter(s => s.status === 'approved'), [subs]);
+
+  /**
+   * O'rtacha baho. Ilgari `s.teacherCorrection?.grade || s.ttResult.grade`
+   * edi — ya'ni ustoz tekshirmagan ishda AI bahosi ko'rsatilardi. AI
+   * natijasini esa o'quvchining brauzeri yozadi (serverda Firestore
+   * yozuvchisi yo'q), shuning uchun u ishonchli emas: o'quvchi o'ziga
+   * 5 yozib qo'ya olardi va o'rtacha baho shuni ko'rsatardi.
+   *
+   * Qo'shimcha: `s.ttResult.grade` himoyasiz edi — `ttResult` bo'lmagan
+   * hujjat butun sahifani yiqitardi.
+   */
+  const verifiedAverage = useMemo(() => {
+    const graded = completedSubs.filter(s => !!s.teacherCorrection);
+    if (graded.length === 0) return null;
+    const sum = graded.reduce((acc, s) => acc + verifiedGradeOf(s), 0);
+    return (sum / graded.length).toFixed(1);
+  }, [completedSubs]);
+
   const rank = calculateUserRank(user.points || 0);
 
   const renderMainContent = () => {
@@ -139,7 +207,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
                </div>
                <div className="bg-white p-3 sm:px-5 sm:py-3 rounded-2xl border border-slate-100 shadow-xs flex items-center space-x-3 min-h-[44px]">
                   <span className="text-xl sm:text-2xl font-black text-emerald-500">
-                    {completedSubs.length ? (completedSubs.reduce((acc, s) => acc + (s.teacherCorrection?.grade || s.ttResult.grade), 0) / completedSubs.length).toFixed(1) : '0'}
+                    {verifiedAverage ?? '—'}
                   </span>
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">O'rtacha</span>
                </div>
@@ -207,7 +275,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
                 {subs.slice(0, 4).map(s => {
                   const task = tasks.find(t => t.id === s.taskId);
                   const isApproved = s.status === 'approved';
-                  const grade = s.teacherCorrection?.grade || s.ttResult?.grade || 0;
+                  const grade = verifiedGradeOf(s);
                   return (
                     <button 
                       key={s.id}
@@ -233,27 +301,6 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
           )}
 
           {activeTask && <DictationWorker task={activeTask} user={user} onCancel={() => setActiveTask(null)} onSubmitted={handleSubmitted} onUserUpdate={onUserUpdate} />}
-          {viewResult && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] overflow-y-auto p-2 sm:p-6 flex justify-center items-start sm:items-center">
-              <div className="max-w-5xl w-full bg-white rounded-3xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-300 my-4 sm:my-8 border border-slate-100">
-                <div className="sticky top-0 z-30 bg-slate-900 text-white px-5 sm:px-8 py-4 flex justify-between items-center border-b border-slate-800">
-                  <div>
-                    <h3 className="text-base sm:text-lg font-black uppercase tracking-wider">Natija tafsilotlari</h3>
-                    <p className="text-[11px] text-slate-400 font-medium">Teach Tracker tahlili va ustoz tekshiruvi</p>
-                  </div>
-                  <button 
-                    onClick={() => setViewResult(null)} 
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-colors min-h-[40px] flex items-center justify-center"
-                  >
-                    Yopish
-                  </button>
-                </div>
-                <div className="max-h-[80vh] overflow-y-auto">
-                  <ResultView result={viewResult.teacherCorrection || viewResult.ttResult} images={viewResult.images} files={viewResult.files} />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       );
     }
@@ -263,7 +310,7 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
         <div className="space-y-8 animate-in fade-in duration-500">
           <h2 className="text-3xl font-black text-slate-900">Barcha vazifalar</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tasks.map(t => {
+            {openTasks.map(t => {
               const hasSubmitted = subs.some(s => s.taskId === t.id);
               return (
                 <div key={t.id} className={`p-6 rounded-[2.5rem] border-2 transition-all shadow-sm ${hasSubmitted ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-white hover:border-indigo-600 hover:shadow-lg'}`}>
@@ -307,7 +354,9 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
             {subs.map(s => {
               const task = tasks.find(t => t.id === s.taskId);
               const isApproved = s.status === 'approved';
-              const grade = s.teacherCorrection?.grade || s.ttResult?.grade || 0;
+              // Faqat ustoz tasdiqlagan baho ko'rsatiladi. AI natijasini
+              // o'quvchining brauzeri yozadi, ya'ni unga ishonib bo'lmaydi.
+              const grade = verifiedGradeOf(s);
               return (
                 <div key={s.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 flex items-center justify-between group">
                   <div className="flex items-center space-x-4">
@@ -352,6 +401,36 @@ export const StudentDashboard: React.FC<Props> = ({ user, view = 'home', onUserU
   return (
     <>
       {renderMainContent()}
+
+      {/*
+        Natija oynasi ILGARI faqat `view === 'home'` shoxi ichida turardi.
+        Ya'ni "Mening natijalarim" sahifasidagi ko'z tugmasi `setViewResult`
+        ni chaqirar, lekin ko'rsatadigan oyna o'sha sahifada yo'q edi —
+        tugma bosilsa HECH NARSA bo'lmasdi. Endi oyna barcha
+        ko'rinishlardan tashqarida, shuning uchun hamma joyda ishlaydi.
+      */}
+      {viewResult && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] overflow-y-auto p-2 sm:p-6 flex justify-center items-start sm:items-center">
+          <div className="max-w-5xl w-full bg-white rounded-3xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-300 my-4 sm:my-8 border border-slate-100">
+            <div className="sticky top-0 z-30 bg-slate-900 text-white px-5 sm:px-8 py-4 flex justify-between items-center border-b border-slate-800">
+              <div>
+                <h3 className="text-base sm:text-lg font-black uppercase tracking-wider">Natija tafsilotlari</h3>
+                <p className="text-[11px] text-slate-400 font-medium">Teach Tracker tahlili va ustoz tekshiruvi</p>
+              </div>
+              <button 
+                onClick={() => setViewResult(null)} 
+                className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-colors min-h-[40px] flex items-center justify-center"
+              >
+                Yopish
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto">
+              <ResultView result={viewResult.teacherCorrection || viewResult.ttResult} images={viewResult.images} files={viewResult.files} />
+            </div>
+          </div>
+        </div>
+      )}
+
       <BadgesModal 
         user={user} 
         submissions={subs} 

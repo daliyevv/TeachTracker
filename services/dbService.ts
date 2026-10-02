@@ -86,45 +86,59 @@ const COLLECTIONS = {
   SUBMISSIONS: "submissions"
 };
 
-const DEFAULT_SAMPLE_TASKS: DictationTask[] = [
-  {
-    id: "sample-task-1",
-    teacherId: "teacher-default",
-    title: "Ona yurtim — O'zbekiston",
-    content: "O'zbekiston — go'zal va mehmondo'st o'lka. Uning keng dalalari, baland tog'lari va serquyosh bog'lari bor. Biz vatanimizni sevamiz va uning gullab-yashnashiga hissa qo'shamiz.",
-    type: "dictation",
-    status: "published",
-    createdAt: Date.now() - 3600000
-  },
-  {
-    id: "sample-task-2",
-    teacherId: "teacher-default",
-    title: "Bahor fasli va tabiat",
-    content: "Bahorda tabiat uyg'onadi. Daraxtlar qiyg'os gullaydi, qushlar chug'urlaydi. Dalalarda dehqonlar bahorgi yumushlarni boshlaydilar.",
-    type: "dictation",
-    status: "published",
-    createdAt: Date.now() - 7200000
+/*
+ * Bu yerda ilgari DEFAULT_SAMPLE_TASKS turardi — ikkita o'ylab topilgan
+ * diktant ("Ona yurtim", "Bahor fasli"). Vazifalar ro'yxati bo'sh bo'lsa,
+ * LocalDB ularni localStorage ga YOZIB QO'YAR va o'quvchiga HAQIQIY vazifa
+ * sifatida ko'rsatardi.
+ *
+ * Buning oqibati shunchaki chalkashlik emas edi: ularning `id` si
+ * ("sample-task-1") Firestore'da mavjud emas, `teacherId` esa
+ * "teacher-default". O'quvchi "Boshlash" ni bosib ish yuborsa,
+ * firestore.rules dagi `incoming().teacherId == taskTeacher(incoming().taskId)`
+ * sharti o'tmas va topshiriq RAD ETILARDI — ya'ni bola diktantni yozib,
+ * rasm yuklab, oxirida xato olardi.
+ *
+ * Endi vazifalar faqat o'qituvchi yaratgan joydan keladi. Vazifa bo'lmasa,
+ * interfeys "Hozircha yangi vazifalar yo'q" deb halol aytadi.
+ */
+
+/**
+ * Keshni foydalanuvchi bo'yicha ajratadigan kalit.
+ *
+ * Ilgari kalitlar oddiy "submissions", "tasks" edi — ya'ni BITTA brauzerda
+ * hamma foydalanuvchi uchun UMUMIY. Maktab kompyuteri yoki uydagi umumiy
+ * planshetda bu jiddiy muammo: bir o'quvchi chiqib, boshqasi kirsa,
+ * oldingisining ishlari keshda qolar va tarmoq uzilganda ro'yxatda
+ * ko'rinardi.
+ *
+ * Eski kalitlardagi ma'lumot shu o'zgarishdan keyin ishlatilmaydi. Bu
+ * xavfsiz: kesh asl manba emas, haqiqiy ma'lumot Firestore'da.
+ */
+const scopedKey = (key: string): string => {
+  let uid = 'anon';
+  try {
+    uid = auth?.currentUser?.uid || 'anon';
+  } catch {
+    // auth hali tayyor emas — umumiy bo'lmagan "anon" doirasiga tushamiz
   }
-];
+  return `tt:${uid}:${key}`;
+};
 
 // Local storage fallback for offline / demo mode
 const LocalDB = {
   get: (key: string) => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(key) || "null");
+      const parsed = JSON.parse(localStorage.getItem(scopedKey(key)) || "null");
       if (parsed) return parsed;
-      if (key === COLLECTIONS.TASKS) {
-        localStorage.setItem(key, JSON.stringify(DEFAULT_SAMPLE_TASKS));
-        return DEFAULT_SAMPLE_TASKS;
-      }
       return [];
     } catch {
-      return key === COLLECTIONS.TASKS ? DEFAULT_SAMPLE_TASKS : [];
+      return [];
     }
   },
   set: (key: string, data: any) => {
     try {
-      localStorage.setItem(key, JSON.stringify(data));
+      localStorage.setItem(scopedKey(key), JSON.stringify(data));
     } catch (e) {
       console.warn("Local storage write failed, pruning older items to preserve image quality:", e);
       try {
@@ -132,7 +146,7 @@ const LocalDB = {
           // Eski topshiriqlarni qisqartirib, so'nggilarining rasmlarini to'liq saqlab qolamiz
           for (let count = Math.min(data.length - 1, 6); count >= 1; count--) {
             try {
-              localStorage.setItem(key, JSON.stringify(data.slice(0, count)));
+              localStorage.setItem(scopedKey(key), JSON.stringify(data.slice(0, count)));
               break;
             } catch {}
           }
@@ -144,21 +158,21 @@ const LocalDB = {
   },
   getItem: (key: string, id: string) => {
     try {
-      return JSON.parse(localStorage.getItem(`${key}_${id}`) || "null");
+      return JSON.parse(localStorage.getItem(scopedKey(`${key}_${id}`)) || "null");
     } catch {
       return null;
     }
   },
   setItem: (key: string, id: string, data: any) => {
     try {
-      localStorage.setItem(`${key}_${id}`, JSON.stringify(data));
+      localStorage.setItem(scopedKey(`${key}_${id}`), JSON.stringify(data));
     } catch (e) {
       console.warn("Local storage write failed:", e);
     }
   },
   removeItem: (key: string, id: string) => {
     try {
-      localStorage.removeItem(`${key}_${id}`);
+      localStorage.removeItem(scopedKey(`${key}_${id}`));
     } catch (e) {
       console.warn("Local storage remove failed:", e);
     }

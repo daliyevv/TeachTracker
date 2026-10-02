@@ -1,18 +1,63 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { compressImageDataUrl, readAndCompressImage } from '../services/imageService';
+import { compressImageDataUrl, readAndCompressImage, appendWithinLimit, MAX_PAGES } from '../services/imageService';
 
 interface UploaderProps {
   onImagesSelect: (base64Array: string[]) => void;
   isLoading: boolean;
 }
 
+
 export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading }) => {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isCamera, setIsCamera] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  /** Faol kamera oqimi. Komponent yopilganda to'xtatish uchun kerak. */
+  const streamRef = useRef<MediaStream | null>(null);
+  /** Rasmlar ro'yxatining joriy holati (asinxron qo'shishlar uchun). */
+  const previewsRef = useRef<string[]>([]);
+
+  /**
+   * Rasmlar ro'yxatini bitta joydan yangilaymiz: chegarani tekshiradi va
+   * ota komponentga xabar beradi.
+   *
+   * MUHIM: `setPreviews` ning funksiya shakli ishlatiladi. Ilgari
+   * `[...previews, ...]` yozilgan edi — `previews` esa render paytida
+   * "muzlatilgan" qiymat. Fayl o'qish va siqish asinxron bo'lgani uchun
+   * foydalanuvchi ketma-ket ikki marta fayl tanlasa, ikkinchi natija
+   * BIRINCHISINI o'chirib tashlardi.
+   */
+  const appendImages = (incoming: string[]) => {
+    if (incoming.length === 0) return;
+    // `previewsRef` joriy ro'yxatni saqlaydi. Nega ref: hisoblashni
+    // `setPreviews` ning yangilovchi funksiyasi ICHIDA qilib bo'lmaydi —
+    // u toza bo'lishi shart, React uni ikki marta chaqirishi mumkin.
+    // Oddiy `previews` o'zgaruvchisi esa render paytida muzlatilgan va
+    // ketma-ket asinxron chaqiruvlarda eskirib qolardi.
+    const { next, rejected } = appendWithinLimit(previewsRef.current, incoming);
+    if (rejected > 0) {
+      setUploadError(`Eng ko'pi bilan ${MAX_PAGES} sahifa yuborish mumkin, ortig'i qabul qilinmadi.`);
+    }
+    if (next === previewsRef.current) return;
+    previewsRef.current = next;
+    setPreviews(next);
+    onImagesSelect(next);
+  };
+
+  // Kamera oqimini komponent yopilganda to'xtatamiz.
+  //
+  // Ilgari bunday tozalash YO'Q edi: o'quvchi kamerani ochib, keyin butun
+  // oynani yopsa (masalan "Orqaga"), oqim ochiq qolar va telefon
+  // kamerasining chirog'i yonib turardi.
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    };
+  }, []);
 
   // Ctrl+V (Paste) orqali rasm yuklash imkoniyati
   useEffect(() => {
@@ -27,14 +72,11 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
           const blob = items[i].getAsFile();
           if (blob) {
             const reader = new FileReader();
+            reader.onerror = () => setUploadError("Rasmni o'qib bo'lmadi.");
             reader.onloadend = async () => {
               // Yuborishdan oldin siqamiz (Vercel 4,5MB chegarasi)
               const base64 = await compressImageDataUrl(reader.result as string);
-              setPreviews(prev => {
-                const newPreviews = [...prev, base64];
-                onImagesSelect(newPreviews);
-                return newPreviews;
-              });
+              appendImages([base64]);
             };
             reader.readAsDataURL(blob);
           }
@@ -46,56 +88,82 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
     return () => window.removeEventListener('paste', handlePaste);
   }, [isLoading, isCamera, onImagesSelect]);
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length > 0) {
-      // readAndCompressImage faylni o'qib, darhol siqadi
-      const promises = files.map((file: File) => readAndCompressImage(file));
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const files = Array.from(input.files || []) as File[];
+    // Qiymatni darhol tozalaymiz: aks holda AYNI o'sha faylni qayta tanlash
+    // `change` hodisasini uyg'otmaydi va hech narsa bo'lmaydi.
+    input.value = '';
+    if (files.length === 0) return;
 
-      Promise.all(promises).then(base64s => {
-        const newPreviews = [...previews, ...base64s];
-        setPreviews(newPreviews);
-        onImagesSelect(newPreviews);
-      });
+    setUploadError(null);
+    try {
+      // readAndCompressImage faylni o'qib, darhol siqadi
+      const base64s = await Promise.all(files.map((file: File) => readAndCompressImage(file)));
+      appendImages(base64s);
+    } catch (err: any) {
+      // Ilgari `.catch` yo'q edi: fayl o'qilmasa, va'da jimgina yiqilar va
+      // foydalanuvchi nima bo'lganini bilmasdi.
+      console.error("Rasmni o'qib bo'lmadi:", err);
+      setUploadError("Rasmni o'qib bo'lmadi. Boshqa fayl tanlab ko'ring.");
     }
   };
 
   const startCamera = async () => {
+    setUploadError(null);
     try {
       setIsCamera(true);
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      } else {
+        // Komponent oqim kelgunicha yopilgan — oqimni darhol to'xtatamiz,
+        // aks holda kamera ochiq qolib ketardi.
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        setIsCamera(false);
+      }
     } catch (err) {
       console.error("Camera error:", err);
       setIsCamera(false);
-      alert("Kameraga ruxsat berilmadi.");
+      setUploadError("Kameraga ruxsat berilmadi. Brauzer sozlamalarini tekshiring.");
     }
   };
 
-  const capture = () => {
-    if (videoRef.current && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      canvasRef.current.width = videoRef.current.videoWidth;
-      canvasRef.current.height = videoRef.current.videoHeight;
-      ctx?.drawImage(videoRef.current, 0, 0);
-      const base64 = canvasRef.current.toDataURL('image/jpeg');
-      const newPreviews = [...previews, base64];
-      setPreviews(newPreviews);
-      onImagesSelect(newPreviews);
-      // Kamerani yopmaymiz, yana rasm olishi mumkin
-    }
+  const capture = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    canvasRef.current.width = videoRef.current.videoWidth;
+    canvasRef.current.height = videoRef.current.videoHeight;
+    ctx.drawImage(videoRef.current, 0, 0);
+
+    // Ilgari bu yerda `toDataURL('image/jpeg')` chaqirilardi — sifat
+    // ko'rsatilmaganda brauzer 0.92 ni oladi, ya'ni telefon kamerasining
+    // to'liq o'lchamli rasmi bir necha MB bo'lib qolardi. Siqish faqat
+    // fayl tanlash yo'lida ishlar, KAMERA yo'li esa uni butunlay chetlab
+    // o'tardi — telefonda asosiy yo'l aynan kamera.
+    const raw = canvasRef.current.toDataURL('image/jpeg', 0.9);
+    const compressed = await compressImageDataUrl(raw);
+    appendImages([compressed]);
+    // Kamerani yopmaymiz, yana rasm olishi mumkin
   };
 
   const stopCamera = () => {
-    const stream = videoRef.current?.srcObject as MediaStream;
-    stream?.getTracks().forEach(t => t.stop());
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
     setIsCamera(false);
   };
 
   const removeImage = (index: number) => {
-    const newPreviews = previews.filter((_, i) => i !== index);
-    setPreviews(newPreviews);
-    onImagesSelect(newPreviews);
+    setUploadError(null);
+    const next = previewsRef.current.filter((_, i) => i !== index);
+    previewsRef.current = next;
+    setPreviews(next);
+    onImagesSelect(next);
   };
 
   return (
@@ -158,6 +226,12 @@ export const Uploader: React.FC<UploaderProps> = ({ onImagesSelect, isLoading })
           </>
         )}
       </div>
+
+      {uploadError && (
+        <div role="alert" className="p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl">
+          <p className="text-sm font-bold text-amber-900">{uploadError}</p>
+        </div>
+      )}
 
       <input type="file" ref={inputRef} className="hidden" accept="image/*" multiple onChange={handleFile} />
       <canvas ref={canvasRef} className="hidden" />
