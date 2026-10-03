@@ -39,9 +39,13 @@ export default function App() {
           // Agar baza foydalanuvchi bo'lmasa, lekin auth bo'lsa, demak hali rol tanlanmagan
           setPendingUser({
             uid: firebaseUser.uid,
-            name: firebaseUser.displayName || "Mehmon",
+            // Anonim (demo) sessiyada ism bo'lmaydi.
+            name: firebaseUser.displayName || (firebaseUser.isAnonymous ? "Demo foydalanuvchi" : "Mehmon"),
             email: firebaseUser.email || "",
-            picture: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`
+            picture: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
+            // Demo rejimini shu belgi aniqlaydi: LoginScreen taklif kodini
+            // so'ramaydi, dbService esa ma'lumotni mahalliy saqlaydi.
+            isAnonymous: firebaseUser.isAnonymous,
           });
         }
       } else {
