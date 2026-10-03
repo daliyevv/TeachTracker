@@ -112,3 +112,37 @@ test('har tasnif boshqasidan farqli xabar beradi', () => {
   ];
   assert.equal(new Set(messages).size, messages.length, 'xabarlar takrorlanmasligi kerak');
 });
+
+// --- Kalit shakli haqidagi xavfsiz ma'lumot ---
+
+test('kalit shakli xabarga qo\'shiladi, qiymati esa YO\'Q', () => {
+  const info = describeGeminiError(
+    400,
+    'API key not valid',
+    'uzunligi 40, AIza bilan boshlanadi, kutilgan uzunlik 39'
+  );
+  assert.ok(info);
+  // Shakl ma'lumoti "noto'g'ri kalit" va "bo'sh joy bilan kalit"
+  // holatlarini bir qarashda ajratadi.
+  assert.match(info.message, /uzunligi 40/);
+  assert.match(info.message, /kutilgan uzunlik 39/);
+});
+
+test('shakl berilmasa xabar baribir to\'liq bo\'ladi', () => {
+  const info = describeGeminiError(400, 'API key not valid');
+  assert.ok(info);
+  assert.ok(!info.message.includes('[kalit:'), 'bo\'sh qavs qolmasligi kerak');
+  assert.match(info.message, /yaroqsiz/i);
+});
+
+test('API yoqilmagan xabariga kalit shakli QO\'SHILMAYDI', () => {
+  // Bu holatda kalit aybdor emas, shuning uchun uning uzunligini
+  // ko'rsatish e'tiborni noto'g'ri tomonga tortadi.
+  const info = describeGeminiError(
+    403,
+    'has not been used in project 1 before or it is disabled',
+    'uzunligi 39, AIza bilan boshlanadi'
+  );
+  assert.ok(info);
+  assert.ok(!info.message.includes('[kalit:'), 'kalit shakli bu yerda kerak emas');
+});

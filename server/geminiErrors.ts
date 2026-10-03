@@ -62,19 +62,29 @@ export interface GeminiErrorInfo {
  */
 export const describeGeminiError = (
   status: number,
-  detail: string
+  detail: string,
+  /**
+   * Kalit haqida XAVFSIZ ma'lumot (uzunligi, shakli) — qiymati emas.
+   * Kalitga tegishli xatolarda xabarga qo'shiladi: "noto'g'ri kalit",
+   * "yarim nusxa olingan kalit" va "bo'sh joy bilan kalit" holatlarini
+   * bir qarashda ajratadi.
+   */
+  keyShape?: string
 ): GeminiErrorInfo | null => {
   const brief = briefDetail(detail);
   const withDetail = (text: string) => (brief ? `${text} (Gemini: ${brief})` : text);
+  const withKey = (text: string) => (keyShape ? `${text} [kalit: ${keyShape}]` : text);
 
   // 1. Kalitning o'zi yaroqsiz.
   if (/API_KEY_INVALID|API key not valid|api key is invalid/i.test(detail)) {
     return {
       status: 503,
       reason: 'api_key_invalid',
-      message: withDetail(
-        "AI kaliti yaroqsiz. Loyiha egasi GEMINI_API_KEY ni qayta olishi kerak — " +
-          "qiymatda bo'sh joy yoki tushib qolgan belgi bo'lmasin."
+      message: withKey(
+        withDetail(
+          "AI kaliti yaroqsiz. Loyiha egasi GEMINI_API_KEY ni qayta olishi kerak — " +
+            "qiymatda bo'sh joy yoki tushib qolgan belgi bo'lmasin."
+        )
       ),
     };
   }
@@ -105,10 +115,12 @@ export const describeGeminiError = (
     return {
       status: 503,
       reason: 'api_key_restricted',
-      message: withDetail(
-        "AI kalitiga cheklov qo'yilgan. Loyiha egasi kalit sozlamalaridagi " +
-          "cheklovlarni (domen, IP yoki API ro'yxati) olib tashlashi kerak — " +
-          "server so'rovlari domen cheklovidan o'tmaydi."
+      message: withKey(
+        withDetail(
+          "AI kalitiga cheklov qo'yilgan. Loyiha egasi kalit sozlamalaridagi " +
+            "cheklovlarni (domen, IP yoki API ro'yxati) olib tashlashi kerak — " +
+            "server so'rovlari domen cheklovidan o'tmaydi."
+        )
       ),
     };
   }
@@ -132,7 +144,7 @@ export const describeGeminiError = (
     return {
       status: 503,
       reason: 'permission_denied',
-      message: withDetail("AI xizmati so'rovni rad etdi."),
+      message: withKey(withDetail("AI xizmati so'rovni rad etdi.")),
     };
   }
 

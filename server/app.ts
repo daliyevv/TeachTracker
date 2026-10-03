@@ -49,14 +49,54 @@ app.use(cors({
 app.use(express.json({ limit: '4mb' }));
 
 // Gemini Setup
+/**
+ * Xom qiymat va tozalangan qiymat.
+ *
+ * NEGA TRIM MUHIM: ilgari kalit `process.env` dan OLINGANIDEK uzatilardi.
+ * Kalitni Vercel sozlamalariga qo'lda qo'yganda oxiriga ko'rinmas bo'sh
+ * joy yoki qator tashlash belgisi tushishi juda oson (nusxa olishda
+ * odatiy hol). Natijada:
+ *   - kalit "mavjud" deb hisoblanadi, ya'ni `requireGemini` o'tkazib
+ *     yuboradi;
+ *   - Gemini esa uni "API key not valid" deb rad etadi.
+ * Ya'ni kalit TO'G'RI bo'lsa ham ishlamaydi va sabab ko'rinmaydi —
+ * aynan shu holat yuz berdi: kalit brauzerda ishlar, serverda esa yo'q.
+ */
+const rawGeminiKey = process.env.GEMINI_API_KEY ?? "";
+const geminiApiKey = rawGeminiKey.trim();
+
 const getApiKey = () => {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || key === "undefined" || key === "") {
+  if (!geminiApiKey || geminiApiKey === "undefined") {
     console.error("GEMINI_API_KEY is missing. Please set it in the environment variables.");
     return "MISSING_KEY";
   }
-  return key;
+  return geminiApiKey;
 };
+
+/**
+ * Kalit haqida XAVFSIZ ma'lumot: uzunligi va shakli.
+ *
+ * Kalitning QIYMATI hech qayerda chiqmaydi. Uzunlik va "AIza bilan
+ * boshlanadimi" degan fakt esa maxfiy emas, lekin "noto'g'ri kalit",
+ * "yarim nusxa olingan kalit" va "bo'sh joy bilan kalit" holatlarini
+ * bir qarashda ajratadi. Google kalitlari `AIza` bilan boshlanadi va
+ * 39 belgidan iborat.
+ */
+const geminiKeyShape = (): string => {
+  if (!geminiApiKey) return "kalit yo'q";
+  const parts = [`uzunligi ${geminiApiKey.length}`];
+  parts.push(geminiApiKey.startsWith("AIza") ? "AIza bilan boshlanadi" : "AIza bilan BOSHLANMAYDI");
+  if (geminiApiKey.length !== 39) parts.push("kutilgan uzunlik 39");
+  if (rawGeminiKey !== geminiApiKey) parts.push("atrofida bo'sh joy bor edi (tozalandi)");
+  return parts.join(", ");
+};
+
+if (geminiApiKey && rawGeminiKey !== geminiApiKey) {
+  console.warn(
+    "DIQQAT: GEMINI_API_KEY atrofida bo'sh joy bor edi va tozalandi. " +
+      "Vercel sozlamalarida qiymatni bo'sh joysiz saqlash tavsiya etiladi."
+  );
+}
 
 /**
  * Gemini kaliti haqiqatan o'rnatilganmi.
@@ -99,14 +139,18 @@ const requireGemini = (_req: any, res: express.Response, next: express.NextFunct
   next();
 };
 
-const ai = new GoogleGenAI({
-  apiKey: getApiKey(),
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+/*
+ * Ilgari bu yerda `httpOptions.headers['User-Agent'] = 'aistudio-build'`
+ * turardi — ya'ni so'rovlar o'zini Google AI Studio ning ichki quruvchisi
+ * deb ko'rsatardi. Bu ikki jihatdan noto'g'ri:
+ *   - boshqa mijozning nomidan ish ko'rish halol emas;
+ *   - Google bunday so'rovlarni boshqacha ko'rib chiqishi yoki rad etishi
+ *     mumkin, bu esa aynan hozirgi "kalit rad etildi" muammosining
+ *     ehtimoliy sabablaridan biri.
+ * SDK o'zining to'g'ri User-Agent'ini qo'yadi, shuning uchun olib
+ * tashlandi.
+ */
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 /**
  * Butun so'rov uchun ajratilgan vaqt byudjeti (ms).
@@ -247,9 +291,12 @@ const failure = (res: express.Response, error: any, fallback: string) => {
   // yaroqsizligi emas, balki loyihada Generative Language API ning
   // yoqilmaganligi. Natijada odam kalitni qayta-qayta yaratib, muammoni
   // topa olmaydi.
-  const geminiInfo = describeGeminiError(status, detail);
+  const geminiInfo = describeGeminiError(status, detail, geminiKeyShape());
   if (geminiInfo) {
-    console.error(`Gemini sozlama xatosi [${geminiInfo.reason}]:`, detail);
+    console.error(
+      `Gemini sozlama xatosi [${geminiInfo.reason}] (kalit: ${geminiKeyShape()}):`,
+      detail
+    );
     return res.status(geminiInfo.status).json({ error: geminiInfo.message });
   }
   return res.status(500).json({ error: fallback });
