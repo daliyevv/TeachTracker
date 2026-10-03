@@ -428,3 +428,92 @@ test('build markeri kirish ekranida ko\'rsatiladi', async () => {
   assert.ok(cfg.includes('VERCEL_GIT_COMMIT_SHA'), 'Vercel SHA si o\'qilishi kerak');
   assert.ok(login.includes('__BUILD_SHA__'), 'kirish ekrani versiyani ko\'rsatishi kerak');
 });
+
+// --- demo o'quvchi -> demo ustoz topshirig'i (nuqson: ustoz ko'rmasdi) ---
+
+test("demo o'quvchining topshirig'i demo ustozning so'roviga MOS keladi", async () => {
+  const { DEMO_TASK, resolveUserId } = await import('../../services/demoMode.ts');
+
+  // NUQSON QANDAY BO'LGANI:
+  //   demo o'quvchi -> anonim uid A -> topshiriq { teacherId: DEMO_TASK.teacherId }
+  //   (rol almashtirish uchun chiqib, qaytadan kirish kerak)
+  //   demo ustoz    -> anonim uid B -> panel { teacherId: user.id } so'raydi
+  // Ilgari `user.id` uid B edi, ya'ni so'rov hech qachon mos kelmas va
+  // topshiriq "tekshiruvda" ro'yxatida KO'RINMASDI.
+  const studentSessionUid = 'anon-A-aaaaaaaaaaaa';
+  const teacherSessionUid = 'anon-B-bbbbbbbbbbbb';
+
+  // O'quvchi topshirganda yoziladigan qiymat (DictationWorker: task.teacherId).
+  const writtenTeacherId = DEMO_TASK.teacherId;
+  // Ustoz panelining so'rovi (TeacherDashboard: { teacherId: user.id }).
+  const queriedTeacherId = resolveUserId(teacherSessionUid, true);
+
+  assert.equal(
+    writtenTeacherId,
+    queriedTeacherId,
+    "demo ustozning so'rovi demo topshiriqqa mos kelishi kerak"
+  );
+
+  // Ikki ALOHIDA anonim sessiya bitta shaxsga olib kelishi kerak — aks
+  // holda rol almashtirish bog'lanishni uzadi.
+  assert.equal(
+    resolveUserId(studentSessionUid, true),
+    resolveUserId(teacherSessionUid, true),
+    'har anonim sessiya bir xil demo shaxsini olishi kerak'
+  );
+});
+
+test('haqiqiy foydalanuvchi o\'z uid\'ida qoladi', async () => {
+  const { resolveUserId, DEMO_UID } = await import('../../services/demoMode.ts');
+  // Bu shart buzilsa ikki haqiqiy o'qituvchi bir-birining topshiriqlarini
+  // ko'rib qolardi — demo nuqsonidan ancha yomon.
+  assert.equal(resolveUserId('real-teacher-uid', false), 'real-teacher-uid');
+  assert.notEqual(resolveUserId('real-teacher-uid', false), DEMO_UID);
+});
+
+test('mahalliy saqlash doirasi: demo umumiy, haqiqiy esa ajratilgan', async () => {
+  const { storageScope, DEMO_UID } = await import('../../services/demoMode.ts');
+
+  // Demo: ikki sessiya bitta doirani bo'lishadi, aks holda demo o'quvchi
+  // yozgan topshiriqni demo ustoz O'QIY OLMASDI (kalit `tt:<uid>:...`).
+  assert.equal(storageScope('anon-A', true), DEMO_UID);
+  assert.equal(storageScope('anon-B', true), storageScope('anon-A', true));
+
+  // Haqiqiy: har kim o'z doirasida. Maktabning umumiy kompyuterida bir
+  // o'quvchining ishi boshqasiga ko'rinmasligi uchun shu kerak.
+  assert.equal(storageScope('uid-1', false), 'uid-1');
+  assert.notEqual(storageScope('uid-1', false), storageScope('uid-2', false));
+
+  // Sessiya hali tayyor bo'lmagan holat yiqilmasligi kerak.
+  assert.equal(storageScope(null, false), 'anon');
+  assert.equal(storageScope(undefined, false), 'anon');
+});
+
+test('demo topshirig\'i ustoz panelida O\'QILADIGAN nom bilan chiqadi', async () => {
+  const { readFileSync } = await import('node:fs');
+  const worker = readFileSync('components/DictationWorker.tsx', 'utf8');
+  const dash = readFileSync('components/TeacherDashboard.tsx', 'utf8');
+
+  // Panel `studentName` bo'lmasa `studentId` ni ko'rsatadi, ya'ni demo ish
+  // "O'quvchi: demo" bo'lib chiqar va nuqsonga o'xshardi.
+  assert.ok(dash.includes('s.studentName ||'), 'panel studentName ni afzal ko\'radi');
+  assert.ok(
+    worker.includes("isDemoSession() ? { studentName:"),
+    'demo topshirig\'iga ko\'rinadigan nom qo\'yilishi kerak'
+  );
+});
+
+test('demo topshirig\'i ustozning "tekshiruvda" ro\'yxatiga tushadi', async () => {
+  const { readFileSync } = await import('node:fs');
+  const worker = readFileSync('components/DictationWorker.tsx', 'utf8');
+  const dash = readFileSync('components/TeacherDashboard.tsx', 'utf8');
+
+  // Holat `pending` bo'lishi kerak, panel esa aynan shu holatni
+  // "tekshiruvda" deb sanaydi. Ikkisi ajralib ketsa topshiriq hech qaysi
+  // ro'yxatga tushmay, jimgina yo'qolardi.
+  assert.ok(worker.includes("status: 'pending'"), 'topshiriq pending bo\'lishi kerak');
+  assert.ok(
+    /pendingSubs\s*=\s*subs\.filter\(s\s*=>\s*s\.status === 'pending'/.test(dash),
+    '"tekshiruvda" ro\'yxati pending holatini olishi kerak'
+  );
+});

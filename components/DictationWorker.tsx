@@ -8,6 +8,7 @@ import { ResultView } from './lazy';
 import { dictateText, AudioController } from '../services/ttsService';
 import { evaluateBadges } from '../services/badgeService';
 import { compressImageDataUrl, mimeTypeFromDataUrl } from '../services/imageService';
+import { isDemoSession } from '../services/demoMode';
 import { FileCode, Upload, X, CheckCircle2, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
 
 interface Props { 
@@ -233,6 +234,10 @@ export const DictationWorker: React.FC<Props> = ({ task, user, onCancel, onSubmi
         // Vazifa egasi. Qoidalar bu qiymatni vazifa hujjatiga solishtiradi,
         // shuning uchun uni soxta qo'yib bo'lmaydi.
         teacherId: task.teacherId,
+        // Demoda ism ko'rsatamiz: ustoz paneli `studentName` bo'lmasa
+        // `studentId` ni ko'rsatadi, ya'ni demo ish "O'quvchi: demo" bo'lib
+        // chiqar va nuqsonga o'xshab ko'rinardi.
+        ...(isDemoSession() ? { studentName: "Demo o'quvchi" } : {}),
         images: storedImages.length > 0 ? storedImages : undefined,
         files: storedFiles.length > 0 ? storedFiles : undefined,
         ttResult: ttResult,

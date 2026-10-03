@@ -4,7 +4,7 @@ import { Layout } from './components/Layout';
 import { User, UserRole, ViewType } from './types';
 import { DB, getServiceStatus, resetServiceStatus, setServiceDegraded } from './services/dbService';
 import { auth } from './services/firebase';
-import { clearDemoSession } from './services/demoMode';
+import { clearDemoSession, resolveUserId } from './services/demoMode';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 // Panellar alohida bo'laklarda yuklanadi — qarang components/lazy.tsx
 import { TeacherDashboard, StudentDashboard } from './components/lazy';
@@ -68,8 +68,18 @@ export default function App() {
   const handleRoleSelect = async (role: UserRole, teacherCode?: string) => {
     if (!pendingUser) return;
 
+    // DEMO: shaxs o'zgarmas bo'ladi.
+    //
+    // Anonim sessiya har kirishda yangi uid beradi, rol almashtirish uchun
+    // esa chiqib qaytadan kirish kerak. Shuning uchun uid'ni ishlatsak demo
+    // ustoz demo o'quvchining topshirig'ini KO'RMAYDI: panel
+    // `{ teacherId: user.id }` so'raydi, topshiriqda esa vazifa egasi
+    // (`DEMO_TASK.teacherId` = 'demo') yozilgan va ular hech qachon mos
+    // kelmaydi. Barqaror `'demo'` ikki tomonni bir-biriga bog'laydi.
+    //
+    // Haqiqiy hisobda hech narsa o'zgarmaydi — o'z uid'i qoladi.
     const userData: User = {
-      id: pendingUser.uid,
+      id: resolveUserId(pendingUser.uid, pendingUser.isAnonymous === true),
       name: pendingUser.name || "Foydalanuvchi",
       email: pendingUser.email || "",
       role: role,
