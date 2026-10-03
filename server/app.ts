@@ -11,6 +11,7 @@ import {
   previewOriginPattern,
   type AuthedRequest,
 } from "./auth.js";
+import { describeGeminiError } from "./geminiErrors.js";
 
 dotenv.config();
 
@@ -239,16 +240,17 @@ const failure = (res: express.Response, error: any, fallback: string) => {
   if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(detail)) {
     return res.status(429).json({ error: "Server hozir band. Bir oz kutib, qayta urinib ko'ring." });
   }
-  if (status === 401 || status === 403 || /API key|API_KEY|PERMISSION_DENIED|UNAUTHENTICATED/i.test(detail)) {
-    // Kalit bor, lekin Gemini uni qabul qilmadi: noto'g'ri, muddati o'tgan
-    // yoki cheklangan (masalan domen/IP bo'yicha). Ilgari bu "Xizmat
-    // vaqtincha ishlamayapti" bo'lib qaytar va hech kim nima qilish
-    // kerakligini bilmasdi. Kalit QIYMATI bu yerda ham oshkor qilinmaydi.
-    return res.status(503).json({
-      error:
-        "AI xizmati kalitni qabul qilmadi. Loyiha egasi GEMINI_API_KEY ni " +
-        "tekshirishi kerak (noto'g'ri, muddati o'tgan yoki cheklangan).",
-    });
+  // Sozlama/ruxsat xatolari — har biri o'z sababi va o'z yechimi bilan.
+  //
+  // Ilgari bu yerda hammasi "kalitni tekshirishi kerak" bo'lib qaytardi.
+  // Bu NOTO'G'RI yo'lga solardi: eng ko'p uchraydigan holat kalitning
+  // yaroqsizligi emas, balki loyihada Generative Language API ning
+  // yoqilmaganligi. Natijada odam kalitni qayta-qayta yaratib, muammoni
+  // topa olmaydi.
+  const geminiInfo = describeGeminiError(status, detail);
+  if (geminiInfo) {
+    console.error(`Gemini sozlama xatosi [${geminiInfo.reason}]:`, detail);
+    return res.status(geminiInfo.status).json({ error: geminiInfo.message });
   }
   return res.status(500).json({ error: fallback });
 };
