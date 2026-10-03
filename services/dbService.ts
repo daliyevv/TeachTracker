@@ -13,7 +13,7 @@ import {
   onSnapshot
 } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured, getStorageLazy } from "./firebase";
-import { isDemoSession, withDemoTask } from "./demoMode";
+import { isDemoSession, withDemoTask, storageScope } from "./demoMode";
 import { User, DictationTask, Submission } from "../types";
 
 export enum OperationType {
@@ -116,13 +116,17 @@ const COLLECTIONS = {
  * xavfsiz: kesh asl manba emas, haqiqiy ma'lumot Firestore'da.
  */
 const scopedKey = (key: string): string => {
-  let uid = 'anon';
+  let scope = 'anon';
   try {
-    uid = auth?.currentUser?.uid || 'anon';
+    // DEMO: barqaror doira. Anonim sessiya har kirishda YANGI uid beradi,
+    // ya'ni uid bo'yicha ajratish demo ma'lumotini o'zidan ham yashirib
+    // qo'yardi: demo o'quvchi yozgan topshiriqni demo ustoz (keyingi
+    // sessiya, boshqa uid) o'qiy olmasdi. Qarang demoMode.DEMO_UID.
+    scope = storageScope(auth?.currentUser?.uid, isDemoSession());
   } catch {
     // auth hali tayyor emas — umumiy bo'lmagan "anon" doirasiga tushamiz
   }
-  return `tt:${uid}:${key}`;
+  return `tt:${scope}:${key}`;
 };
 
 // Local storage fallback for offline / demo mode

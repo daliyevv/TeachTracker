@@ -30,6 +30,41 @@ import { auth } from "./firebase";
  */
 
 /**
+ * Demo rejimining BARQAROR shaxsi.
+ *
+ * NEGA KERAK — bu aynan "demo o'quvchi topshirdi, demo ustoz ko'rmadi"
+ * nuqsonining sababi edi:
+ *
+ * Firebase'ning anonim sessiyasi har kirishda YANGI uid beradi. Rolni
+ * almashtirish uchun esa chiqib, qaytadan kirish kerak. Natijada:
+ *
+ *   demo o'quvchi  -> uid A -> topshiriq { teacherId: 'demo' }
+ *   (chiqish, qayta kirish)
+ *   demo ustoz     -> uid B -> panel { teacherId: uid B } so'raydi
+ *
+ * `uid B !== 'demo'`, ya'ni so'rov hech qachon mos kelmaydi va topshiriq
+ * ustozning "tekshiruvda" ro'yxatida KO'RINMAYDI. Ustiga-ustak mahalliy
+ * saqlash ham uid bo'yicha ajratilgan edi (`tt:<uid>:...`), ya'ni uid B
+ * uid A yozgan narsani umuman o'qiy olmasdi.
+ *
+ * Yechim: demo rejimida shaxs ham, saqlash doirasi ham O'ZGARMAS
+ * `'demo'` bo'ladi. Shunda demo o'quvchi va demo ustoz bitta qum
+ * solinadigan maydonni bo'lishadi — demo rejimining butun maqsadi shu:
+ * ilovani ikki tomondan ko'rib chiqish.
+ *
+ * Nega haqiqiy foydalanuvchiga zarar qilmaydi: bu doira FAQAT anonim
+ * sessiyada ishlatiladi (`isDemoSession()`), haqiqiy hisoblar esa o'z
+ * uid'ida qoladi. Demo ma'lumoti baribir Firestore'ga yozilmaydi, hatto
+ * urinib ko'rilsa ham firestore.rules uni rad etadi: `'demo-diktant'`
+ * vazifasi bazada mavjud emas.
+ *
+ * Nimani qabul qilamiz: bitta brauzerda demo rejimidan foydalangan ikki
+ * kishi bir-birining SINOV ishlarini ko'radi. Bu haqiqiy ma'lumot emas va
+ * o'quvchi/ustoz o'tishi uchun bu baham ko'rish SHART.
+ */
+export const DEMO_UID = 'demo';
+
+/**
  * Hozirgi sessiya demo (anonim) sessiyami.
  *
  * Firebase'ning o'zi `isAnonymous` belgisini beradi — bu uid prefiksini
@@ -61,7 +96,7 @@ export const isDemoSession = (): boolean => {
  */
 export const DEMO_TASK: DictationTask = {
   id: 'demo-diktant',
-  teacherId: 'demo',
+  teacherId: DEMO_UID,
   title: '[Demo] Ona yurtim',
   content:
     "O'zbekiston — go'zal va mehmondo'st o'lka. Uning keng dalalari, " +
@@ -121,3 +156,28 @@ export const wasDemoSession = (): boolean => {
     return false;
   }
 };
+
+/**
+ * Foydalanuvchining ilova ichidagi shaxsi.
+ *
+ * Demo rejimida uid emas, barqaror `DEMO_UID` qaytadi. Nega — yuqoridagi
+ * `DEMO_UID` izohida: anonim uid har kirishda o'zgaradi, rol almashtirish
+ * esa chiqib-kirishni talab qiladi, ya'ni uid bo'yicha bog'lanish demo
+ * o'quvchi bilan demo ustozni bir-biridan uzib qo'yadi.
+ *
+ * Alohida funksiya, chunki aynan shu qaror nuqsonga sabab bo'lgan va u
+ * sinab ko'rilishi kerak: manbani grep qilish buni tekshirmaydi.
+ */
+export const resolveUserId = (uid: string, isAnonymous: boolean): string =>
+  isAnonymous ? DEMO_UID : uid;
+
+/**
+ * Mahalliy saqlash doirasi (localStorage kalit prefiksi).
+ *
+ * Haqiqiy foydalanuvchi o'z uid'ida qoladi — maktabning umumiy
+ * kompyuterida bir o'quvchining ishi boshqasiga ko'rinmasligi uchun.
+ * Demo esa bitta umumiy qum maydonini oladi, aks holda demo ma'lumoti
+ * o'zidan ham yashirinib qolardi.
+ */
+export const storageScope = (uid: string | null | undefined, isDemo: boolean): string =>
+  isDemo ? DEMO_UID : (uid || 'anon');
