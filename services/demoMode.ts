@@ -80,3 +80,44 @@ export const withDemoTask = (tasks: DictationTask[]): DictationTask[] => {
   if (tasks.some(t => t.id === DEMO_TASK.id)) return tasks;
   return [DEMO_TASK, ...tasks];
 };
+
+/**
+ * Demo rejimi shu sessiyada boshlanganini eslab qoladi.
+ *
+ * NEGA KERAK: anonim sessiya yo'qolib qolishi mumkin (brauzer saqlashni
+ * tozalaydi, sessiya muddati tugaydi, boshqa oynada chiqib ketiladi).
+ * Bunda demo foydalanuvchi "Tizimga kirilmagan. Sahifani yangilab,
+ * qaytadan kiring." degan xabarni oladi — demo rejimida bu xabarning
+ * ma'nosi yo'q, chunki kiradigan hisob ham yo'q.
+ *
+ * Shu belgi bilan `apiClient` demo sessiyasini O'ZI qayta tiklaydi.
+ * Belgi `sessionStorage` da: yangi yorliqda yoki brauzer yopilgandan
+ * keyin qolmaydi, ya'ni haqiqiy foydalanuvchini tasodifan anonim
+ * sessiyaga tushirib qo'ymaydi.
+ */
+const DEMO_FLAG = 'tt:demo-session';
+
+export const markDemoSession = () => {
+  try {
+    sessionStorage.setItem(DEMO_FLAG, '1');
+  } catch {
+    // sessionStorage yopiq bo'lsa ham demo ishlashi kerak
+  }
+};
+
+export const clearDemoSession = () => {
+  try {
+    sessionStorage.removeItem(DEMO_FLAG);
+  } catch {
+    // muhim emas
+  }
+};
+
+/** Shu sessiyada demo rejimi boshlanganmi (sessiya yo'qolgan bo'lsa ham). */
+export const wasDemoSession = (): boolean => {
+  try {
+    return sessionStorage.getItem(DEMO_FLAG) === '1';
+  } catch {
+    return false;
+  }
+};
