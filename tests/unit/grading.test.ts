@@ -280,49 +280,88 @@ test('redirect zaxirasi faqat popup ishlamaganda ishlaydi', async () => {
 
 // --- demo rejimi ---
 
-test('demo uid yaratilishi va tekshirilishi MOS keladi', async () => {
-  const { newDemoUid, isDemoUid, DEMO_UID_PREFIX } = await import('../../services/demoMode.ts');
-
-  // Aynan shu yerda nuqson bor edi: LoginScreen `demo-user-` bilan
-  // yaratar, dbService esa `local-demo-` ni tekshirardi — ya'ni tekshiruv
-  // HECH QACHON ishlamasdi.
-  const uid = newDemoUid();
-  assert.ok(uid.startsWith(DEMO_UID_PREFIX));
-  assert.equal(isDemoUid(uid), true, 'yaratilgan uid tekshiruvdan o\'tishi shart');
-
-  // Haqiqiy Firebase uid demo deb hisoblanmasligi kerak.
-  assert.equal(isDemoUid('kJ3nX9aBcDeFgHiJkLmNoPqRsTuV'), false);
-  assert.equal(isDemoUid('local-demo-abc'), false);
-  assert.equal(isDemoUid(''), false);
-  assert.equal(isDemoUid(undefined), false);
-  assert.equal(isDemoUid(null), false);
-  assert.equal(isDemoUid(123), false);
+test('demo sessiyasi Firebase belgisidan aniqlanadi', async () => {
+  const mod = await import('../../services/demoMode.ts');
+  // Ilgari demo holati uid prefiksidan aniqlanardi va prefiks ikki joyda
+  // alohida yozilgani uchun bir-biridan ajralib qolgan edi. Endi manba
+  // Firebase'ning o'z `isAnonymous` belgisi — taxmin qilinmaydi.
+  assert.equal(typeof mod.isDemoSession, 'function');
+  // Sessiya yo'q muhitda (test) demo deb hisoblanmasligi kerak.
+  assert.equal(mod.isDemoSession(), false);
 });
 
-test('har demo uid alohida bo\'ladi', async () => {
-  const { newDemoUid } = await import('../../services/demoMode.ts');
-  const ids = new Set(Array.from({ length: 50 }, () => newDemoUid()));
-  // Bir xil uid ikki demo sessiyani aralashtirib yuborardi.
-  assert.ok(ids.size > 45, `kutilgan ~50 xil uid, olindi ${ids.size}`);
+test("demo diktant FAQAT demo sessiyasida qo'shiladi", async () => {
+  const { withDemoTask, DEMO_TASK } = await import('../../services/demoMode.ts');
+  // Testda sessiya yo'q, ya'ni demo emas -> ro'yxatga tegilmaydi.
+  // Bu muhim: eski DEFAULT_SAMPLE_TASKS har kimga ko'rsatilardi va
+  // topshirilganda Firestore qoidasida rad etilardi.
+  const real = [{ id: 'haqiqiy' } as any];
+  assert.equal(withDemoTask(real), real, 'demo bo\'lmasa ro\'yxat o\'zgarmasligi kerak');
+  assert.equal(withDemoTask([]).length, 0);
+
+  // Demo diktant demo ekani NOMIDA ko'rinishi kerak.
+  assert.match(DEMO_TASK.title, /demo/i);
+  assert.equal(DEMO_TASK.status, 'published');
+  assert.ok(DEMO_TASK.content.length > 0, 'diktant matni bo\'sh bo\'lmasligi kerak');
 });
 
-test("dbService demo foydalanuvchini Firestore'ga yozmaydi", async () => {
-  // Kodda eski, ishlamaydigan prefiks qolib ketmaganini tekshiramiz.
+test("demo ma'lumoti Firestore'ga bormasligi bitta shartdan boshqariladi", async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync('services/dbService.ts', 'utf8');
-  assert.ok(!src.includes('local-demo-'), "eski 'local-demo-' prefiksi qolib ketgan");
-  assert.ok(src.includes('isDemoUid('), 'demo tekshiruvi umumiy funksiyadan kelishi kerak');
+
+  // Shart ilgari o'n ikki joyda qo'lda yozilgan va ba'zilari demo
+  // tekshiruvini o'tkazib yuborgan edi — demo ishi haqiqiy o'qituvchining
+  // paneliga tushib ketishi mumkin edi.
+  assert.ok(src.includes('const useLocalOnly'), 'yagona predikat bo\'lishi kerak');
+  assert.ok(src.includes('isDemoSession()'), 'demo sessiyasi hisobga olinishi kerak');
+
+  // Qo'lda yozilgan nusxalar qolmasligi kerak.
+  const manual = (src.match(/!isFirebaseConfigured \|\|/g) || []).length;
+  assert.equal(manual, 1, `qo'lda yozilgan shart ${manual} joyda qolgan (faqat ta'rifda bo'lishi kerak)`);
+
+  // Rekursiyaga aylanib qolmaganini tekshiramiz: ta'rif o'zini chaqirmasin.
+  const def = src.slice(src.indexOf('const useLocalOnly'), src.indexOf('export const DB'));
+  assert.ok(!/=>\s*useLocalOnly\(\)/.test(def), 'ta\'rif o\'zini chaqirmasligi kerak');
 });
 
-test("demo rejimida taklif kodi so'ralmaydi", async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync('components/LoginScreen.tsx', 'utf8');
-  // "Men Ustozman" tugmasi to'g'ridan-to'g'ri kod panelini ochmasligi kerak.
-  assert.ok(
-    !src.includes('onClick={() => { setRoleError(null); setShowTeacherCode(true); }}'),
-    "tugma hamma holatda kod panelini ochmasligi kerak"
-  );
-  assert.ok(src.includes('const isDemo = isDemoUid('), 'demo holati aniqlanishi kerak');
-  // Demo bo'lmasa kod panelini ochadi, demo bo'lsa darhol o'tadi.
-  assert.ok(src.includes('if (!isDemo) {'), 'demo va haqiqiy hisob ajratilishi kerak');
+test('demo rejimi uchun alohida xato xabarlari bor', async () => {
+  const { describeDemoError } = await import('../../services/authErrors.ts');
+  const notEnabled = describeDemoError({ code: 'auth/operation-not-allowed' });
+  assert.equal(notEnabled.kind, 'config');
+  // Demo yo'lida gap Google hisobida emas, anonim kirishning yoqilganida.
+  assert.match(notEnabled.message, /Demo rejimi/i);
+  assert.match(notEnabled.hint || '', /Anonymous/);
+  assert.ok(!/Google bilan kirish/.test(notEnabled.message));
 });
+
+// --- sahifa soni chegarasi ---
+
+test('appendWithinLimit chegaradan oshirmaydi', async () => {
+  const { appendWithinLimit, MAX_PAGES } = await import('../../services/imageService.ts');
+
+  const ten = Array.from({ length: 10 }, (_, i) => `img${i}`);
+  const result = appendWithinLimit(ten, ['a', 'b', 'c', 'd'], MAX_PAGES);
+  // 10 + 4 = 14, chegara 12 -> 2 tasi qabul qilinadi, 2 tasi rad etiladi.
+  assert.equal(result.next.length, MAX_PAGES);
+  assert.equal(result.rejected, 2);
+  // Tartib saqlanadi: `pageIndex` shu tartibga tayanadi.
+  assert.equal(result.next[10], 'a');
+  assert.equal(result.next[11], 'b');
+});
+
+test("appendWithinLimit joy bo'lmasa asl ro'yxatni qaytaradi", async () => {
+  const { appendWithinLimit } = await import('../../services/imageService.ts');
+  const full = Array.from({ length: 12 }, (_, i) => `img${i}`);
+  const result = appendWithinLimit(full, ['x'], 12);
+  assert.equal(result.rejected, 1);
+  // Aynan o'sha havola — chaqiruvchi shundan "o'zgarish yo'q" deb biladi.
+  assert.equal(result.next, full);
+});
+
+test("appendWithinLimit bo'sh ro'yxatga normal qo'shadi", async () => {
+  const { appendWithinLimit } = await import('../../services/imageService.ts');
+  const result = appendWithinLimit([], ['a', 'b'], 12);
+  assert.deepEqual(result.next, ['a', 'b']);
+  assert.equal(result.rejected, 0);
+});
+

@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
-import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
-import { newDemoUid, isDemoUid } from '../services/demoMode';
+import { signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously } from 'firebase/auth';
 import {
   describeAuthError,
+  describeDemoError,
   isUserCancelled,
   shouldFallBackToRedirect,
   type AuthErrorInfo,
@@ -74,7 +74,7 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
    * Shuning uchun demo rejimida kod so'rash HECH QANDAY himoya bermaydi —
    * faqat yo'lni to'sadi.
    */
-  const isDemo = isDemoUid(pendingUser?.uid);
+  const isDemo = pendingUser?.isAnonymous === true;
 
   /**
    * "Men Ustozman" bosilganda.
@@ -117,7 +117,9 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
 
   const handleGoogleLogin = async () => {
     if (!isFirebaseConfigured || !auth) {
-      handleDemoLogin();
+      // Firebase sozlanmagan bo'lsa demo ham ishlamaydi (anonim sessiya
+      // ham Firebase'ni talab qiladi), shuning uchun aniq xato beramiz.
+      setAuthError(describeAuthError({ code: 'auth/configuration-not-found' }));
       return;
     }
     try {
@@ -165,13 +167,38 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
     }
   };
 
-  const handleDemoLogin = () => {
-    onAuthenticated({
-      uid: newDemoUid(),
-      name: "Demo Foydalanuvchi",
-      email: "demo@teachtracker.uz",
-      picture: `https://api.dicebear.com/7.x/avataaars/svg?seed=demo-user`
-    });
+  /**
+   * Demo rejimi — Firebase'ning ANONIM sessiyasi bilan.
+   *
+   * NEGA SESSIYA KERAK: Faza 3 da `/api/*` yo'llari token bilan yopildi
+   * (Gemini kalitini begonalar sarflab yubormasligi uchun). Demo rejimida
+   * esa sessiya umuman yo'q edi, ya'ni `apiClient` tokenni ola olmas va
+   * AI chaqiruvi serverga yetib ham bormasdi — demo rejimida diktantni
+   * tekshirishning imkoni yo'q edi.
+   *
+   * Anonim sessiya bilan token bor, himoya ham buzilmaydi: uid bo'yicha
+   * kvota va Firestore qoidalari o'z kuchida qoladi. Ma'lumot esa
+   * mahalliy qoladi (qarang services/demoMode.ts).
+   *
+   * `onAuthenticated` chaqirilmaydi — sessiya paydo bo'lishini App.tsx
+   * dagi `onAuthStateChanged` o'zi ushlaydi. Ikki joydan bir vaqtda
+   * o'rnatish poygaga olib kelardi.
+   */
+  const handleDemoLogin = async () => {
+    if (!auth) {
+      setAuthError(describeAuthError({ code: 'auth/configuration-not-found' }));
+      return;
+    }
+    setLoading(true);
+    setAuthError(null);
+    try {
+      await signInAnonymously(auth);
+    } catch (err: any) {
+      console.error("Demo rejimiga kirib bo'lmadi:", err?.code, err);
+      setAuthError(describeDemoError(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

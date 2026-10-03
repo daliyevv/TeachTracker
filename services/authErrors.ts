@@ -167,3 +167,43 @@ export const shouldFallBackToRedirect = (err: any): boolean => {
     code === 'auth/web-storage-unsupported'
   );
 };
+
+/**
+ * Demo rejimiga (anonim sessiyaga) kirishdagi xatolar.
+ *
+ * Alohida funksiya, chunki xabarlar boshqacha: demo rejimida gap Google
+ * hisobida emas, Firebase loyihasida anonim kirishning yoqilganida.
+ * Umumiy `describeAuthError` `auth/operation-not-allowed` ni "Google
+ * bilan kirish yoqilmagan" deb tarjima qiladi — demo yo'lida bu
+ * NOTO'G'RI yo'lga solardi.
+ */
+export const describeDemoError = (err: any): AuthErrorInfo => {
+  const code = typeof err?.code === 'string' ? err.code : 'unknown';
+
+  if (
+    code === 'auth/operation-not-allowed' ||
+    code === 'auth/admin-restricted-operation'
+  ) {
+    return {
+      code,
+      kind: 'config',
+      message: "Demo rejimi yoqilmagan.",
+      hint:
+        "Loyiha egasi Firebase Console -> Authentication -> Sign-in method " +
+        "bo'limida 'Anonymous' usulini yoqishi kerak. Demo rejimi sun'iy " +
+        "intellekt tekshiruvi uchun shu sessiyani ishlatadi.",
+    };
+  }
+
+  if (code === 'auth/network-request-failed') {
+    return {
+      code,
+      kind: 'network',
+      message: "Internet aloqasi yo'q.",
+      hint: "Ulanishni tekshirib, qayta urinib ko'ring.",
+    };
+  }
+
+  // Qolgan holatlar umumiy tasniflovchiga mos keladi (domen, cookie va h.k.).
+  return describeAuthError(err);
+};

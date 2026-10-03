@@ -13,7 +13,7 @@ import {
   onSnapshot
 } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured, getStorageLazy } from "./firebase";
-import { isDemoUid } from "./demoMode";
+import { isDemoSession, withDemoTask } from "./demoMode";
 import { User, DictationTask, Submission } from "../types";
 
 export enum OperationType {
@@ -208,10 +208,29 @@ const filterLocalSubmissions = (filter?: SubmissionFilter): Submission[] => {
   return subs;
 };
 
+/**
+ * Ma'lumot FAQAT brauzerda saqlanishi kerakmi.
+ *
+ * Nega yagona funksiya: bu shart ilgari o'n ikki joyda qo'lda yozilgan va
+ * ularning ba'zilari demo tekshiruvini o'tkazib yuborgan edi. Natijada
+ * demo topshiriqlari Firestore'ga tushib ketishi mumkin edi — begonaning
+ * sinov ishi haqiqiy o'qituvchining paneliga.
+ *
+ * Mahalliy rejim shart bo'ladigan holatlar:
+ *   - Firebase sozlanmagan yoki xizmat ishdan chiqqan;
+ *   - sessiya yo'q;
+ *   - sessiya DEMO (anonim) — demo ma'lumoti hech qachon baza'ga bormaydi.
+ */
+const useLocalOnly = (): boolean =>
+  !isFirebaseConfigured ||
+  isServiceDegraded ||
+  !auth?.currentUser ||
+  isDemoSession();
+
 export const DB = {
   // User
   getUser: async (uid: string): Promise<User | null> => {
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(uid)) {
+    if (useLocalOnly()) {
       return LocalDB.getItem(COLLECTIONS.USERS, uid);
     }
     const path = `${COLLECTIONS.USERS}/${uid}`;
@@ -244,7 +263,7 @@ export const DB = {
     const previousLocal = LocalDB.getItem(COLLECTIONS.USERS, user.id);
     LocalDB.setItem(COLLECTIONS.USERS, user.id, user);
     // Demo yoki avtorizatsiyasiz foydalanuvchilar faqat LocalDB da saqlanadi
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(user.id)) {
+    if (useLocalOnly()) {
       return;
     }
     const path = `${COLLECTIONS.USERS}/${user.id}`;
@@ -289,7 +308,7 @@ export const DB = {
     const cached = LocalDB.getItem(COLLECTIONS.USERS, uid);
     if (cached) LocalDB.setItem(COLLECTIONS.USERS, uid, { ...cached, ...data });
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser || isDemoUid(uid)) return;
+    if (useLocalOnly()) return;
     const path = `${COLLECTIONS.USERS}/${uid}`;
     try {
       await updateDoc(doc(db, COLLECTIONS.USERS, uid), data);
@@ -309,7 +328,11 @@ export const DB = {
     // uchun kirmagan holda so'rov yubormaymiz — submission funksiyalaridagi
     // kabi. Aks holda bu jimgina permission-denied bo'lib, namuna
     // vazifalarga tushib ketardi.
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return LocalDB.get(COLLECTIONS.TASKS);
+    // Demo sessiyasida Firestore'ga murojaat qilmaymiz: demo foydalanuvchi
+    // haqiqiy o'qituvchining vazifalarini ko'rmasligi kerak. Buning o'rniga
+    // sinab ko'rish uchun demo diktant beriladi.
+    if (isDemoSession()) return withDemoTask(LocalDB.get(COLLECTIONS.TASKS));
+    if (useLocalOnly()) return LocalDB.get(COLLECTIONS.TASKS);
     const path = COLLECTIONS.TASKS;
     try {
       const q = query(collection(db, COLLECTIONS.TASKS), orderBy("createdAt", "desc"));
@@ -334,7 +357,7 @@ export const DB = {
     localTasks.unshift({ ...task, id: localId });
     LocalDB.set(COLLECTIONS.TASKS, localTasks);
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
+    if (useLocalOnly()) {
       return localId;
     }
     const path = COLLECTIONS.TASKS;
@@ -360,7 +383,7 @@ export const DB = {
       LocalDB.set(COLLECTIONS.TASKS, tasks);
     }
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return;
+    if (useLocalOnly()) return;
     const path = `${COLLECTIONS.TASKS}/${id}`;
     try {
       await updateDoc(doc(db, COLLECTIONS.TASKS, id), data);
@@ -379,7 +402,7 @@ export const DB = {
     const filtered = tasks.filter((t: any) => t.id !== id);
     LocalDB.set(COLLECTIONS.TASKS, filtered);
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return;
+    if (useLocalOnly()) return;
     const path = `${COLLECTIONS.TASKS}/${id}`;
     try {
       await deleteDoc(doc(db, COLLECTIONS.TASKS, id));
@@ -395,7 +418,7 @@ export const DB = {
 
   // Submissions
   getSubmissions: async (filter?: SubmissionFilter): Promise<Submission[]> => {
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
+    if (useLocalOnly()) {
       return filterLocalSubmissions(filter);
     }
     const path = COLLECTIONS.SUBMISSIONS;
@@ -438,7 +461,7 @@ export const DB = {
     subs.unshift({ ...sub, id: localId });
     LocalDB.set(COLLECTIONS.SUBMISSIONS, subs);
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
+    if (useLocalOnly()) {
       return localId;
     }
     const path = COLLECTIONS.SUBMISSIONS;
@@ -466,7 +489,7 @@ export const DB = {
       LocalDB.set(COLLECTIONS.SUBMISSIONS, subs);
     }
 
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) return;
+    if (useLocalOnly()) return;
     const path = `${COLLECTIONS.SUBMISSIONS}/${id}`;
     try {
       await updateDoc(doc(db, COLLECTIONS.SUBMISSIONS, id), data);
@@ -482,10 +505,11 @@ export const DB = {
 
   // Real-time listeners
   subscribeToTasks: (callback: (tasks: DictationTask[]) => void) => {
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
-      const interval = setInterval(() => {
-        callback(LocalDB.get(COLLECTIONS.TASKS));
-      }, 2500);
+    // Demo sessiyasi ham mahalliy ro'yxatdan o'qiydi (demo diktant bilan).
+    if (useLocalOnly()) {
+      const emit = () => callback(withDemoTask(LocalDB.get(COLLECTIONS.TASKS)));
+      emit();
+      const interval = setInterval(emit, 2500);
       return () => clearInterval(interval);
     }
     const path = COLLECTIONS.TASKS;
@@ -505,7 +529,7 @@ export const DB = {
   },
 
   subscribeToSubmissions: (callback: (subs: Submission[]) => void, filter?: SubmissionFilter) => {
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
+    if (useLocalOnly()) {
       const interval = setInterval(() => {
         callback(filterLocalSubmissions(filter));
       }, 2500);
@@ -542,7 +566,7 @@ export const DB = {
    */
   uploadImage: async (base64: string, path: string): Promise<string> => {
     // Demo yoki avtorizatsiyasiz rejim: Storage yo'q, base64 bilan ishlaymiz
-    if (!isFirebaseConfigured || isServiceDegraded || !auth?.currentUser) {
+    if (useLocalOnly()) {
       return base64;
     }
 
