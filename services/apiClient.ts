@@ -8,6 +8,7 @@
  * majburan yangilanib, so'rov bir marta qayta yuboriladi.
  */
 import { auth } from './firebase';
+import { wasDemoSession } from './demoMode';
 
 /**
  * Server xatosi. `message` — foydalanuvchiga ko'rsatiladigan o'zbekcha matn,
@@ -70,7 +71,30 @@ export const raiseForStatus = async (response: Response): Promise<never> => {
 export const notSignedIn = () =>
   new ApiError("Tizimga kirilmagan. Sahifani yangilab, qaytadan kiring.", 401, 'no current user');
 
+/**
+ * Demo sessiyasi yo'qolgan bo'lsa, uni qayta tiklaydi.
+ *
+ * Demo rejimida "Tizimga kirilmagan, qaytadan kiring" xabarining ma'nosi
+ * yo'q — kiradigan hisob ham yo'q. Shuning uchun anonim sessiyani o'zimiz
+ * qayta ochamiz. FAQAT demo rejimi shu sessiyada boshlangan bo'lsa:
+ * haqiqiy foydalanuvchini tasodifan anonim sessiyaga tushirib
+ * qo'ymasligimiz kerak.
+ */
+const restoreDemoSession = async () => {
+  if (!auth || auth.currentUser || !wasDemoSession()) return;
+  const { signInAnonymously } = await import('firebase/auth');
+  await signInAnonymously(auth);
+};
+
 const buildHeaders = async (forceRefresh: boolean): Promise<Record<string, string>> => {
+  if (!auth?.currentUser) {
+    // Demo sessiyasi uzilib qolgan bo'lsa qayta tiklaymiz.
+    try {
+      await restoreDemoSession();
+    } catch (err) {
+      console.error("Demo sessiyasini qayta tiklab bo'lmadi:", err);
+    }
+  }
   const user = auth?.currentUser;
   if (!user) throw notSignedIn();
   const token = await user.getIdToken(forceRefresh);

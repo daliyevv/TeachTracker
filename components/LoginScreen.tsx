@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
 import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
 import { signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously } from 'firebase/auth';
+import { markDemoSession } from '../services/demoMode';
 import {
   describeAuthError,
   describeDemoError,
@@ -192,6 +193,9 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
     setLoading(true);
     setAuthError(null);
     try {
+      // Belgini OLDIN qo'yamiz: sessiya keyinchalik uzilib qolsa,
+      // `apiClient` uni o'zi qayta tiklay oladi.
+      markDemoSession();
       await signInAnonymously(auth);
     } catch (err: any) {
       console.error("Demo rejimiga kirib bo'lmadi:", err?.code, err);
@@ -262,6 +266,15 @@ export const LoginScreen: React.FC<Props> = ({ onAuthenticated, onRoleSelect, pe
 
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
               * Demo rejimida "O'quvchi" bo'lib diktant topshirib, keyin "Ustoz" bo'lib uni tekshirishingiz mumkin.
+            </p>
+
+            {/*
+              Qaysi versiya ishlab turgani. Bu sessiyada "tuzatish deploy
+              bo'ldimi?" degan savolga bir necha marta taxmin bilan javob
+              berishga to'g'ri keldi — endi bir qarashda ma'lum.
+            */}
+            <p className="text-[9px] font-mono text-slate-300 select-all">
+              versiya: {__BUILD_SHA__}
             </p>
           </>
         ) : (

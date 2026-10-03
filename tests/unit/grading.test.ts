@@ -365,3 +365,66 @@ test("appendWithinLimit bo'sh ro'yxatga normal qo'shadi", async () => {
   assert.equal(result.rejected, 0);
 });
 
+
+// --- demo sessiyasini qayta tiklash ---
+
+test('demo belgisi sessionStorage bo\'lmasa ham yiqilmaydi', async () => {
+  const { markDemoSession, wasDemoSession, clearDemoSession } =
+    await import('../../services/demoMode.ts');
+
+  // Node'da sessionStorage yo'q. Demo rejimi shunda ham ishlashi kerak —
+  // belgi yo'qolsa, eng yomoni qayta tiklash ishlamaydi, ilova yiqilmaydi.
+  assert.doesNotThrow(() => markDemoSession());
+  assert.doesNotThrow(() => clearDemoSession());
+  assert.equal(wasDemoSession(), false);
+});
+
+test('demo belgisi sessionStorage bilan to\'g\'ri ishlaydi', async () => {
+  const store = new Map<string, string>();
+  (globalThis as any).sessionStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  try {
+    // Funksiyalar sessionStorage ni CHAQIRUV paytida o'qiydi, shuning
+    // uchun modulni qayta yuklash kerak emas.
+    const mod = await import('../../services/demoMode.ts');
+    assert.equal(mod.wasDemoSession(), false, 'boshida belgi bo\'lmasligi kerak');
+    mod.markDemoSession();
+    assert.equal(mod.wasDemoSession(), true, 'belgi qo\'yilishi kerak');
+    // Chiqishda tozalanadi — aks holda chiqqandan keyin ham anonim sessiya
+    // qayta tiklanib turardi.
+    mod.clearDemoSession();
+    assert.equal(mod.wasDemoSession(), false, 'belgi tozalanishi kerak');
+  } finally {
+    delete (globalThis as any).sessionStorage;
+  }
+});
+
+test('apiClient demo sessiyasini qayta tiklaydi, haqiqiy foydalanuvchini esa tegmaydi', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('services/apiClient.ts', 'utf8');
+
+  assert.ok(src.includes('restoreDemoSession'), 'qayta tiklash funksiyasi bo\'lishi kerak');
+  // Eng muhim shart: faqat demo rejimida. Aks holda tizimdan chiqqan
+  // haqiqiy foydalanuvchi jimgina anonim sessiyaga tushib qolardi.
+  assert.ok(
+    src.includes('!wasDemoSession()'),
+    'qayta tiklash FAQAT demo sessiyasida bo\'lishi kerak'
+  );
+  // Mavjud sessiyaga tegmasligi kerak.
+  assert.ok(src.includes('auth.currentUser ||'), 'mavjud sessiya buzilmasligi kerak');
+});
+
+test('build markeri kirish ekranida ko\'rsatiladi', async () => {
+  const { readFileSync } = await import('node:fs');
+  const login = readFileSync('components/LoginScreen.tsx', 'utf8');
+  const cfg = readFileSync('vite.config.ts', 'utf8');
+
+  // "Tuzatish deploy bo'ldimi?" savoliga taxmin bilan javob berishni
+  // to'xtatadi.
+  assert.ok(cfg.includes('__BUILD_SHA__'), 'vite.config build SHA ni qo\'yishi kerak');
+  assert.ok(cfg.includes('VERCEL_GIT_COMMIT_SHA'), 'Vercel SHA si o\'qilishi kerak');
+  assert.ok(login.includes('__BUILD_SHA__'), 'kirish ekrani versiyani ko\'rsatishi kerak');
+});

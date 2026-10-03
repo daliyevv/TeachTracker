@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { User, UserRole, ViewType } from './types';
 import { DB, getServiceStatus, resetServiceStatus, setServiceDegraded } from './services/dbService';
 import { auth } from './services/firebase';
+import { clearDemoSession } from './services/demoMode';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 // Panellar alohida bo'laklarda yuklanadi — qarang components/lazy.tsx
 import { TeacherDashboard, StudentDashboard } from './components/lazy';
@@ -84,6 +85,9 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    // Demo belgisini tozalaymiz, aks holda chiqqandan keyin ham
+    // `apiClient` anonim sessiyani qayta tiklab turardi.
+    clearDemoSession();
     if (auth) {
       await signOut(auth);
     }
