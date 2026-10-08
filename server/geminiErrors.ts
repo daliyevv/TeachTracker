@@ -150,3 +150,78 @@ export const describeGeminiError = (
 
   return null;
 };
+
+/**
+ * Limit (kvota) xatolari — kunlik va qisqa muddatli ALOHIDA.
+ *
+ * NEGA KERAK: ilgari har qanday 429 bitta xabar bilan qaytardi —
+ * "Server hozir band. Bir oz kutib, qayta urinib ko'ring."
+ *
+ * Bu KUNLIK limit uchun YOLG'ON: kutish yordam bermaydi, limit ertaga
+ * yangilanadi. Bola (yoki namoyish paytida hakam) xabarga ishonib qayta-qayta
+ * urinadi va har urinish yana rad etiladi. Ilovaning boshqa joylarida
+ * yolg'on umid beradigan xabarlar olib tashlangan — bu joy e'tibordan
+ * chetda qolgan edi.
+ *
+ * Ikki holat Gemini javobidan ajratiladi:
+ *   - kunlik  -> kvota nomida "PerDay" bo'ladi
+ *               (masalan GenerateRequestsPerDayPerProjectPerModel-FreeTier)
+ *   - qisqa   -> daqiqadagi chegara; Gemini `retryDelay` ni ham beradi
+ */
+export interface QuotaErrorInfo {
+  status: number;
+  message: string;
+  /** Jurnal uchun: `quota_daily` yoki `quota_short`. */
+  reason: 'quota_daily' | 'quota_short';
+  /** Qisqa muddatli limitda necha soniyadan keyin urinish mumkin. */
+  retryAfterSec?: number;
+}
+
+/** Kvota nomi kunlik chegarani bildiradimi. */
+const DAILY_MARKER = /per[\s_-]*day|daily|requests?[\s_-]*per[\s_-]*day/i;
+
+/**
+ * Gemini bergan `retryDelay` dan soniyani oladi.
+ *
+ * Nega foydali: "bir oz kutib" noaniq, "33 soniyadan keyin" esa aniq.
+ * Ilovaning o'z kvotasi ham aynan shunday aytadi (qarang server/auth.ts),
+ * ya'ni ikki joy bir xil ohangda gapiradi.
+ */
+export const retryAfterSeconds = (detail: string): number | undefined => {
+  const m = detail.match(/retry[_-]?delay["'\s:]*([0-9]+(?:\.[0-9]+)?)\s*s/i);
+  if (!m) return undefined;
+  const sec = Math.ceil(Number(m[1]));
+  if (!Number.isFinite(sec) || sec <= 0) return undefined;
+  // Bir soatdan ortiq "kutish" maslahati ma'nosiz — u holda kunlik deb qaraladi.
+  return Math.min(sec, 3600);
+};
+
+export const describeQuotaError = (
+  status: number,
+  detail: string
+): QuotaErrorInfo | null => {
+  const isQuota =
+    status === 429 || /RESOURCE_EXHAUSTED|\bquota\b|rate limit/i.test(detail);
+  if (!isQuota) return null;
+
+  if (DAILY_MARKER.test(detail)) {
+    return {
+      status: 429,
+      reason: 'quota_daily',
+      message:
+        "Bugungi sun'iy intellekt limiti tugadi. Kutish yordam bermaydi — " +
+        "limit Tinch okeani yarim tunida yangilanadi (O'zbekistonda taxminan " +
+        "12:00). Loyiha egasi limitni Google AI Studio'da oshirishi mumkin.",
+    };
+  }
+
+  const retryAfterSec = retryAfterSeconds(detail);
+  return {
+    status: 429,
+    reason: 'quota_short',
+    retryAfterSec,
+    message: retryAfterSec
+      ? `So'rovlar juda tez-tez keldi. ${retryAfterSec} soniyadan keyin qayta urinib ko'ring.`
+      : "So'rovlar juda tez-tez keldi. Bir daqiqa kutib, qayta urinib ko'ring.",
+  };
+};

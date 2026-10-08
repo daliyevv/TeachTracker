@@ -146,3 +146,89 @@ test('API yoqilmagan xabariga kalit shakli QO\'SHILMAYDI', () => {
   assert.ok(info);
   assert.ok(!info.message.includes('[kalit:'), 'kalit shakli bu yerda kerak emas');
 });
+
+// --- Limit (kvota) xatolari: kunlik va qisqa muddatli ---
+
+test('KUNLIK limit kutishni TAVSIYA QILMAYDI', async () => {
+  const { describeQuotaError } = await import('../../server/geminiErrors.ts');
+  // Gemini bepul tarifda aynan shunday qaytaradi.
+  const real =
+    'You exceeded your current quota. ' +
+    'quota_metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, ' +
+    'quota_id: GenerateRequestsPerDayPerProjectPerModel-FreeTier, quota_value: 20';
+  const info = describeQuotaError(429, real);
+  assert.ok(info);
+  assert.equal(info.reason, 'quota_daily');
+  assert.equal(info.status, 429);
+  // ENG MUHIMI: kutish yordam bermasligi aytilishi kerak. Ilgari bu yerda
+  // "bir oz kutib, qayta urinib ko'ring" turardi — bu yolg'on edi.
+  assert.match(info.message, /kutish yordam bermaydi/i);
+  assert.ok(
+    !/bir oz kutib/i.test(info.message),
+    "kunlik limitda 'bir oz kutib' deyish yolg'on"
+  );
+  // Qachon yangilanishi aytilsin.
+  assert.match(info.message, /yangilanadi/);
+  // Kunlik limitda qayta urinish soniyasi berilmaydi.
+  assert.equal(info.retryAfterSec, undefined);
+});
+
+test('qisqa muddatli limit ANIQ soniyani aytadi', async () => {
+  const { describeQuotaError } = await import('../../server/geminiErrors.ts');
+  const real =
+    'Resource has been exhausted (e.g. check quota). ' +
+    'quota_id: GenerateRequestsPerMinutePerProjectPerModel, retryDelay: "33s"';
+  const info = describeQuotaError(429, real);
+  assert.ok(info);
+  assert.equal(info.reason, 'quota_short');
+  assert.equal(info.retryAfterSec, 33);
+  assert.match(info.message, /33 soniyadan keyin/);
+});
+
+test('soniya berilmasa qisqa limit baribir tushunarli', async () => {
+  const { describeQuotaError } = await import('../../server/geminiErrors.ts');
+  const info = describeQuotaError(429, 'RESOURCE_EXHAUSTED: too many requests');
+  assert.ok(info);
+  assert.equal(info.reason, 'quota_short');
+  assert.equal(info.retryAfterSec, undefined);
+  assert.match(info.message, /bir daqiqa kutib/i);
+});
+
+test('kunlik va qisqa limit xabarlari BIR XIL BO\'LMASLIGI kerak', async () => {
+  const { describeQuotaError } = await import('../../server/geminiErrors.ts');
+  const daily = describeQuotaError(429, 'quota_id: GenerateRequestsPerDayPerProjectPerModel')!;
+  const short = describeQuotaError(429, 'quota_id: GenerateRequestsPerMinutePerProjectPerModel')!;
+  assert.notEqual(daily.message, short.message, 'ikki holat ajratilishi kerak');
+  assert.equal(daily.reason, 'quota_daily');
+  assert.equal(short.reason, 'quota_short');
+});
+
+test('limitga aloqasi yo\'q xato null qaytaradi', async () => {
+  const { describeQuotaError } = await import('../../server/geminiErrors.ts');
+  // Bular `failure()` da boshqa yo'llar bilan ko'rib chiqiladi.
+  assert.equal(describeQuotaError(500, 'internal server error'), null);
+  assert.equal(describeQuotaError(400, 'API key not valid'), null);
+  assert.equal(describeQuotaError(0, 'socket hang up'), null);
+});
+
+test('aql bovar qilmaydigan retryDelay ishonchli qiymatga keltiriladi', async () => {
+  const { retryAfterSeconds } = await import('../../server/geminiErrors.ts');
+  assert.equal(retryAfterSeconds('retryDelay: "7.2s"'), 8, 'kasr son yuqoriga yaxlitlanadi');
+  assert.equal(retryAfterSeconds('retryDelay: "0s"'), undefined, '0 soniya maslahat emas');
+  assert.equal(retryAfterSeconds('retryDelay: "999999s"'), 3600, 'bir soat bilan cheklanadi');
+  assert.equal(retryAfterSeconds('hech narsa yo\'q'), undefined);
+});
+
+test("kunlik limit xabari eski YOLG'ON matnni ishlatmaydi", async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('server/app.ts', 'utf8');
+  // `failure()` endi tasniflovchini chaqirishi kerak, o'zi xabar yozmasligi.
+  assert.ok(src.includes('describeQuotaError(status, detail)'), 'tasniflovchi ulanishi kerak');
+  // Eski matn `error:` qiymati sifatida qolmasligi kerak (izohda bo'lishi mumkin).
+  assert.ok(
+    !/error:\s*"Server hozir band/.test(src),
+    "eski 'Server hozir band' xabari olib tashlanishi kerak"
+  );
+  // Qisqa limitda standart sarlavha ham qo'yiladi.
+  assert.ok(src.includes("res.setHeader('Retry-After'"), 'Retry-After qo\'yilishi kerak');
+});

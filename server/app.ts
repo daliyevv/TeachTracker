@@ -11,7 +11,7 @@ import {
   previewOriginPattern,
   type AuthedRequest,
 } from "./auth.js";
-import { describeGeminiError } from "./geminiErrors.js";
+import { describeGeminiError, describeQuotaError, briefDetail } from "./geminiErrors.js";
 
 dotenv.config();
 
@@ -281,8 +281,16 @@ const failure = (res: express.Response, error: any, fallback: string) => {
       error: "Tahlil vaqti tugadi. Rasmlar sonini kamaytirib, qayta urinib ko'ring.",
     });
   }
-  if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(detail)) {
-    return res.status(429).json({ error: "Server hozir band. Bir oz kutib, qayta urinib ko'ring." });
+  // Limit xatolari. KUNLIK va qisqa muddatli limit ALOHIDA xabar oladi:
+  // ilgari ikkisi ham "bir oz kutib, qayta urinib ko'ring" bo'lib qaytardi,
+  // kunlik limitda esa kutish YORDAM BERMAYDI. Qarang geminiErrors.ts.
+  const quotaInfo = describeQuotaError(status, detail);
+  if (quotaInfo) {
+    console.error(`Gemini limit xatosi [${quotaInfo.reason}]:`, briefDetail(detail));
+    if (quotaInfo.retryAfterSec) {
+      res.setHeader('Retry-After', String(quotaInfo.retryAfterSec));
+    }
+    return res.status(quotaInfo.status).json({ error: quotaInfo.message });
   }
   // Sozlama/ruxsat xatolari — har biri o'z sababi va o'z yechimi bilan.
   //
