@@ -232,3 +232,85 @@ test("kunlik limit xabari eski YOLG'ON matnni ishlatmaydi", async () => {
   // Qisqa limitda standart sarlavha ham qo'yiladi.
   assert.ok(src.includes("res.setHeader('Retry-After'"), 'Retry-After qo\'yilishi kerak');
 });
+
+// --- Vaqtinchalik yuklama (503) va qayta urinish qarori ---
+
+test('503 ALOHIDA tasniflanadi va kalitni aybdor qilmaydi', async () => {
+  const { describeOverloadError } = await import('../../server/geminiErrors.ts');
+  const real = 'The model is overloaded. Please try again later. [503 UNAVAILABLE]';
+  const info = describeOverloadError(503, real);
+  assert.ok(info);
+  assert.equal(info.reason, 'model_overloaded');
+  assert.equal(info.status, 503);
+  assert.match(info.message, /band/i);
+  // Foydalanuvchi o'zida yoki kalitida nuqson bor deb o'ylamasligi kerak.
+  assert.match(info.message, /kalit yoki limit muammosi emas/i);
+  assert.match(info.message, /qayta urinib/i);
+});
+
+test('503 xabari umumiy "xatolik yuz berdi" dan FARQ qiladi', async () => {
+  const { describeOverloadError } = await import('../../server/geminiErrors.ts');
+  const info = describeOverloadError(503, 'UNAVAILABLE')!;
+  assert.ok(
+    !/xatolik yuz berdi/i.test(info.message),
+    'umumiy matn qolgan bo\'lsa, tuzatishning ma\'nosi yo\'q'
+  );
+});
+
+test('KVOTA xatosi vaqtinchalik DEB HISOBLANMAYDI', async () => {
+  const { isTransientError } = await import('../../server/geminiErrors.ts');
+  // ENG MUHIM TEST. Bepul tarifda kunlik chegara 20 ta so'rov (loyiha
+  // konsolida tasdiqlangan). Kvota xatosida qayta urinish o'sha 20 tani
+  // bekorga sarflaydi va foydalanuvchi ertasigacha ishlay olmaydi.
+  assert.equal(isTransientError(429, 'RESOURCE_EXHAUSTED'), false);
+  assert.equal(isTransientError(429, 'quota exceeded, please try again later'), false,
+    "matnda 'try again later' bo'lsa ham kvota qayta urinilmasligi kerak");
+  assert.equal(isTransientError(0, 'You exceeded your current quota'), false);
+});
+
+test('sozlama xatolari ham qayta urinilmaydi', async () => {
+  const { isTransientError } = await import('../../server/geminiErrors.ts');
+  // Bular qayta urinishdan tuzalmaydi — faqat vaqt va kvota sarflanadi.
+  assert.equal(isTransientError(400, 'API key not valid'), false);
+  assert.equal(isTransientError(403, 'API_KEY_HTTP_REFERRER_BLOCKED'), false);
+  assert.equal(isTransientError(403, 'has not been used in project 1 before or it is disabled'), false);
+  assert.equal(isTransientError(404, 'models/x is not found for API version v1beta'), false);
+});
+
+test('faqat Google tomonidagi yuklama qayta uriniladi', async () => {
+  const { isTransientError } = await import('../../server/geminiErrors.ts');
+  assert.equal(isTransientError(503, 'Service Unavailable'), true);
+  assert.equal(isTransientError(0, 'The model is overloaded. Please try again later.'), true);
+  assert.equal(isTransientError(0, 'UNAVAILABLE: backend temporarily unavailable'), true);
+  // Aloqasi yo'q xato qayta urinilmaydi.
+  assert.equal(isTransientError(500, 'internal error'), false);
+});
+
+test('zanjir vaqtinchalik xatoda QAYTA URINADI, boshqasida yo\'q', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('server/app.ts', 'utf8');
+
+  assert.ok(src.includes('MAX_ATTEMPTS_PER_MODEL'), 'urinishlar soni belgilanishi kerak');
+  assert.ok(src.includes('isTransientError('), 'qaror tasniflovchidan olinishi kerak');
+  // Vaqtinchalik bo'lmasa — darhol keyingi modelga, qayta urinmasdan.
+  assert.ok(/if \(!transient\) break;/.test(src), 'vaqtinchalik bo\'lmaganda qayta urinmasligi kerak');
+  // Kutish byudjetni buzmasligi kerak.
+  assert.ok(
+    src.includes('MIN_ATTEMPT_MS + RETRY_BACKOFF_MS'),
+    'kutishdan keyin urinishga vaqt qolishini tekshirish kerak'
+  );
+  assert.ok(src.includes('await sleep(RETRY_BACKOFF_MS)'), 'qayta urinishdan oldin kutish kerak');
+});
+
+test('503 javobi mijozga yetib boradi va Retry-After qo\'yiladi', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('server/app.ts', 'utf8');
+  assert.ok(src.includes('describeOverloadError(status, detail)'), 'tasniflovchi ulanishi kerak');
+  assert.ok(src.includes("res.setHeader('Retry-After', String(OVERLOAD_RETRY_SEC))"));
+  // Tartib muhim: kvota tekshiruvi 503 dan OLDIN bo'lishi kerak, aks holda
+  // kvota xatosi "xizmat band" bo'lib ko'rinib qolardi.
+  assert.ok(
+    src.indexOf('describeQuotaError(status, detail)') < src.indexOf('describeOverloadError(status, detail)'),
+    'kvota tekshiruvi oldin kelishi kerak'
+  );
+});

@@ -11,7 +11,14 @@ import {
   previewOriginPattern,
   type AuthedRequest,
 } from "./auth.js";
-import { describeGeminiError, describeQuotaError, briefDetail } from "./geminiErrors.js";
+import {
+  describeGeminiError,
+  describeQuotaError,
+  describeOverloadError,
+  isTransientError,
+  briefDetail,
+  OVERLOAD_RETRY_SEC,
+} from "./geminiErrors.js";
 
 dotenv.config();
 
@@ -162,6 +169,12 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
  * chegarasidan ikki baravar ko'p. Byudjet platformadan pastroq bo'lishi shart,
  * shunda javobni biz qaytaramiz.
  */
+/** Bitta model uchun eng ko'p urinish. Ikkinchisi faqat vaqtinchalik xatoda. */
+const MAX_ATTEMPTS_PER_MODEL = 2;
+/** Vaqtinchalik xatodan keyin qayta urinishdan oldingi kutish. */
+const RETRY_BACKOFF_MS = 1_500;
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const REQUEST_BUDGET_MS = 50_000;
 
 /** Yangi urinish boshlash uchun qolishi kerak bo'lgan eng kam vaqt. */
@@ -213,24 +226,46 @@ async function generateWithFallback(params: {
   const perAttemptMs = params.timeoutMs ?? 45_000;
   let lastError: any = null;
 
+  // Har model uchun ikkitagacha urinish. Ikkinchisi FAQAT vaqtinchalik
+  // xatoda (503 / overloaded) bo'ladi: u o'z-o'zidan o'tib ketadi va qayta
+  // urinish uni haqiqatan tuzatadi. Kvota yoki sozlama xatosida qayta
+  // urinish ZARARLI — bepul tarifda kunlik chegara juda kichik va har
+  // urinish uni sarflaydi. Qarang geminiErrors.isTransientError.
+  outer:
   for (const model of uniqueModels) {
-    const remaining = deadline - Date.now();
-    if (remaining < MIN_ATTEMPT_MS) {
-      console.warn(`Byudjet tugadi, ${model} uchun urinish o'tkazib yuborildi (${remaining}ms qoldi)`);
-      break;
-    }
-    try {
-      return await withTimeout(
-        ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config,
-        }),
-        Math.min(perAttemptMs, remaining)
-      );
-    } catch (err: any) {
-      console.warn(`Model ${model} failed:`, err?.message || err);
-      lastError = err;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining < MIN_ATTEMPT_MS) {
+        console.warn(`Byudjet tugadi, ${model} uchun urinish o'tkazib yuborildi (${remaining}ms qoldi)`);
+        break outer;
+      }
+      try {
+        return await withTimeout(
+          ai.models.generateContent({
+            model,
+            contents: params.contents,
+            config: params.config,
+          }),
+          Math.min(perAttemptMs, remaining)
+        );
+      } catch (err: any) {
+        lastError = err;
+        const transient = isTransientError(
+          Number(err?.status || err?.code),
+          String(err?.message || err || '')
+        );
+        console.warn(
+          `Model ${model} urinish ${attempt}/${MAX_ATTEMPTS_PER_MODEL} xato` +
+          `${transient ? " (vaqtinchalik)" : ''}:`,
+          err?.message || err
+        );
+        // Vaqtinchalik bo'lmasa — qayta urinish bekorga kvota sarflaydi.
+        if (!transient) break;
+        if (attempt >= MAX_ATTEMPTS_PER_MODEL) break;
+        // Kutib, keyin urinishga vaqt qolmasa — keyingi modelga o'tamiz.
+        if (deadline - Date.now() < MIN_ATTEMPT_MS + RETRY_BACKOFF_MS) break;
+        await sleep(RETRY_BACKOFF_MS);
+      }
     }
   }
   throw lastError ?? new GeminiTimeoutError();
@@ -291,6 +326,14 @@ const failure = (res: express.Response, error: any, fallback: string) => {
       res.setHeader('Retry-After', String(quotaInfo.retryAfterSec));
     }
     return res.status(quotaInfo.status).json({ error: quotaInfo.message });
+  }
+  // Google tomonidagi vaqtinchalik yuklama. Ilgari bu umumiy "xatolik yuz
+  // berdi" matniga tushar va foydalanuvchi o'zida nuqson bor deb o'ylardi.
+  const overloadInfo = describeOverloadError(status, detail);
+  if (overloadInfo) {
+    console.error(`Gemini vaqtinchalik yuklama [${overloadInfo.reason}]:`, briefDetail(detail));
+    res.setHeader('Retry-After', String(OVERLOAD_RETRY_SEC));
+    return res.status(overloadInfo.status).json({ error: overloadInfo.message });
   }
   // Sozlama/ruxsat xatolari — har biri o'z sababi va o'z yechimi bilan.
   //

@@ -225,3 +225,61 @@ export const describeQuotaError = (
       : "So'rovlar juda tez-tez keldi. Bir daqiqa kutib, qayta urinib ko'ring.",
   };
 };
+
+/**
+ * Xato VAQTINCHALIKmi — ya'ni qayta urinish ma'nolimi.
+ *
+ * NEGA JUDA EHTIYOT BO'LISH KERAK: bepul tarifda kunlik chegara
+ * `gemini-3.8-flash` uchun atigi 20 ta so'rov (loyiha konsolida
+ * tasdiqlangan). Noto'g'ri xatoda qayta urinish o'sha 20 tani bekorga
+ * sarflaydi va foydalanuvchi ertasigacha ishlay olmay qoladi.
+ *
+ * Shuning uchun kvota xatosi ATAYLAB birinchi bo'lib rad etiladi: uning
+ * matnida "try again later" bo'lishi mumkin, lekin qayta urinish holatni
+ * faqat YOMONLASHTIRADI. Sozlama xatolari (kalit, ruxsat, model nomi) ham
+ * qayta urinishdan tuzalmaydi.
+ *
+ * Qayta urinish FAQAT Google tomonidagi vaqtinchalik yuklamada (503,
+ * UNAVAILABLE, "overloaded") ma'noga ega — u o'z-o'zidan o'tib ketadi.
+ */
+export const isTransientError = (status: number, detail: string): boolean => {
+  // Kvota — qayta urinib bo'lmaydi (yuqoridagi izohga qarang).
+  if (status === 429 || /RESOURCE_EXHAUSTED|\bquota\b/i.test(detail)) return false;
+  // Sozlama xatolari qayta urinishdan tuzalmaydi.
+  if (status === 400 || status === 401 || status === 403 || status === 404) return false;
+  if (status === 503) return true;
+  return /\bUNAVAILABLE\b|overloaded|temporarily unavailable|try again later/i.test(detail);
+};
+
+/**
+ * Google tomonidagi vaqtinchalik yuklama (503).
+ *
+ * NEGA ALOHIDA: ilgari 503 hech qayerda tasniflanmas va umumiy
+ * "Diktantni tahlil qilishda xatolik yuz berdi" matniga tushardi.
+ * Bu foydalanuvchini noto'g'ri yo'lga solardi — u o'zida yoki rasmda
+ * nuqson bor deb o'ylardi, aslida esa model o'sha lahzada band edi va
+ * bir necha soniyadan keyin ishlagan bo'lardi.
+ *
+ * Loyiha konsolida bu xato muvaffaqiyatli javoblar bilan TENG miqdorda
+ * ko'rindi, ya'ni u kamdan-kam holat emas.
+ */
+export const describeOverloadError = (
+  status: number,
+  detail: string
+): GeminiErrorInfo | null => {
+  // Kvota boshqa yo'l bilan ko'rib chiqiladi (describeQuotaError).
+  if (status === 429 || /RESOURCE_EXHAUSTED|\bquota\b/i.test(detail)) return null;
+  const overloaded = status === 503 || /\bUNAVAILABLE\b|overloaded/i.test(detail);
+  if (!overloaded) return null;
+  return {
+    status: 503,
+    reason: 'model_overloaded',
+    message:
+      "Sun'iy intellekt xizmati hozir band — Google tomonida vaqtinchalik " +
+      "yuklama. Bir necha soniyadan keyin qayta urinib ko'ring. Bu kalit " +
+      "yoki limit muammosi emas.",
+  };
+};
+
+/** Vaqtinchalik yuklamada mijozga tavsiya etiladigan kutish (soniya). */
+export const OVERLOAD_RETRY_SEC = 10;
