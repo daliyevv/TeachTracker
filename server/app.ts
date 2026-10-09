@@ -14,6 +14,7 @@ import {
 import {
   describeGeminiError,
   describeQuotaError,
+  describeBillingError,
   describeOverloadError,
   isTransientError,
   briefDetail,
@@ -315,6 +316,16 @@ const failure = (res: express.Response, error: any, fallback: string) => {
     return res.status(504).json({
       error: "Tahlil vaqti tugadi. Rasmlar sonini kamaytirib, qayta urinib ko'ring.",
     });
+  }
+  // TO'LOV (402) — kvota tekshiruvidan OLDIN.
+  //
+  // Gemini'ning to'lov xatosi matnida ham "quota" so'zi bor, shuning uchun
+  // u kvota tasniflovchisiga tushib, "bir daqiqa kutib, qayta urinib
+  // ko'ring" bo'lib chiqardi. Kutish esa hech qachon yordam bermaydi.
+  const billingInfo = describeBillingError(status, detail);
+  if (billingInfo) {
+    console.error(`Gemini to'lov xatosi [${billingInfo.reason}]:`, briefDetail(detail));
+    return res.status(billingInfo.status).json({ error: billingInfo.message });
   }
   // Limit xatolari. KUNLIK va qisqa muddatli limit ALOHIDA xabar oladi:
   // ilgari ikkisi ham "bir oz kutib, qayta urinib ko'ring" bo'lib qaytardi,

@@ -200,6 +200,16 @@ export const describeQuotaError = (
   status: number,
   detail: string
 ): QuotaErrorInfo | null => {
+  // 402 (to'lov) BIRINCHI bo'lib chiqarib tashlanadi.
+  //
+  // Gemini to'lov xatosining matnida ham "quota" so'zi bor:
+  // "You exceeded your current quota, please check your plan and billing
+  // details." Pastdagi tekshiruv faqat matnga qarasa, to'lov muammosi
+  // limit deb tasniflanadi va foydalanuvchiga "bir daqiqa kutib, qayta
+  // urinib ko'ring" deyiladi. Bu YOLG'ON: kutish hech qachon yordam
+  // bermaydi, chunki muammo limitda emas.
+  if (isBillingError(status, detail)) return null;
+
   const isQuota =
     status === 429 || /RESOURCE_EXHAUSTED|\bquota\b|rate limit/i.test(detail);
   if (!isQuota) return null;
@@ -220,9 +230,14 @@ export const describeQuotaError = (
     status: 429,
     reason: 'quota_short',
     retryAfterSec,
+    // Soniya berilgan bo'lsa — aniq gapiramiz. Berilmasa, qaysi limit
+    // ekani NOMA'LUM: Gemini har doim ham "PerDay" belgisini yubormaydi.
+    // Shunda "bir daqiqa kutib" deb ishonchli gapirish noto'g'ri yo'lga
+    // soladi — kunlik limit bo'lsa, kutish yordam bermaydi.
     message: retryAfterSec
       ? `So'rovlar juda tez-tez keldi. ${retryAfterSec} soniyadan keyin qayta urinib ko'ring.`
-      : "So'rovlar juda tez-tez keldi. Bir daqiqa kutib, qayta urinib ko'ring.",
+      : "Sun'iy intellekt limitiga urildi. Bir daqiqadan keyin qayta urinib " +
+        "ko'ring; takrorlansa, kunlik limit tugagan bo'lishi mumkin — u ertaga yangilanadi.",
   };
 };
 
@@ -246,6 +261,7 @@ export const isTransientError = (status: number, detail: string): boolean => {
   // Kvota — qayta urinib bo'lmaydi (yuqoridagi izohga qarang).
   if (status === 429 || /RESOURCE_EXHAUSTED|\bquota\b/i.test(detail)) return false;
   // Sozlama xatolari qayta urinishdan tuzalmaydi.
+  if (status === 402) return false; // to'lov — qayta urinishdan tuzalmaydi
   if (status === 400 || status === 401 || status === 403 || status === 404) return false;
   if (status === 503) return true;
   return /\bUNAVAILABLE\b|overloaded|temporarily unavailable|try again later/i.test(detail);
@@ -283,3 +299,43 @@ export const describeOverloadError = (
 
 /** Vaqtinchalik yuklamada mijozga tavsiya etiladigan kutish (soniya). */
 export const OVERLOAD_RETRY_SEC = 10;
+
+/**
+ * To'lov holati (402 Payment Required).
+ *
+ * NEGA ALOHIDA VA NEGA KVOTADAN OLDIN: Gemini'ning to'lov xatosi matnida
+ * ham "quota" so'zi bor —
+ *
+ *   "You exceeded your current quota, please check your plan and
+ *    billing details."
+ *
+ * — shuning uchun faqat matnga qaraydigan tekshiruv uni LIMIT deb
+ * tasniflaydi va foydalanuvchiga "bir daqiqa kutib, qayta urinib ko'ring"
+ * deydi. Bu haqiqatan yuz bergan nuqson edi: konsolda 402 ko'rinib
+ * turgan, ilova esa limit haqida gapirgan, va muammo bir necha marta
+ * noto'g'ri joyda qidirilgan.
+ *
+ * 402 ning sabablari: billing hisobi uzilgan yoki to'xtatilgan, xarajat
+ * chegarasiga yetilgan, karta rad etilgan. Hammasi loyiha egasining
+ * ishi — kutish ham, qayta urinish ham yordam bermaydi.
+ */
+export const isBillingError = (status: number, detail: string): boolean =>
+  status === 402 ||
+  /PAYMENT_REQUIRED|billing account|check your plan and billing|billing is not active|billing has not been enabled/i
+    .test(detail);
+
+export const describeBillingError = (
+  status: number,
+  detail: string
+): GeminiErrorInfo | null => {
+  if (!isBillingError(status, detail)) return null;
+  return {
+    // Sozlama xatolari bilan bir xil: bu loyiha egasi tuzatadigan holat.
+    status: 503,
+    reason: 'billing_required',
+    message:
+      "Sun'iy intellekt xizmati to'lov holati sababli to'xtatilgan. " +
+      "Kutish yordam bermaydi — loyiha egasi Google Cloud'da billing " +
+      "hisobini va xarajat chegarasini tekshirishi kerak.",
+  };
+};
