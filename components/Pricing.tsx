@@ -19,6 +19,7 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
   const plans = [
     {
       id: 'free',
+      period: null,
       name: 'Boshlang\'ich',
       price: '0',
       description: 'Platforma bilan tanishish uchun',
@@ -34,12 +35,13 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
     },
     {
       id: 'pro_monthly',
+      period: 'oy',
       name: 'Pro (Oylik)',
       price: '49,000',
       priceId: 'price_monthly_id',
       description: 'Faol ustozlar uchun mukammal tanlov',
       features: [
-        'Cheksiz diktant tekshirish',
+        'Oyiga 500 tagacha diktant tekshirish',
         'To\'liq AI tahlili va tavsiyalar',
         'Cheksiz sinf va o\'quvchilar',
         'Ovozli diktantlar yaratish',
@@ -52,6 +54,7 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
     },
     {
       id: 'pro_yearly',
+      period: 'yil',
       name: 'Pro (Yillik)',
       price: '399,000',
       priceId: 'price_yearly_id',
@@ -65,6 +68,23 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
       buttonText: 'Yillik rejani tanlash',
       isCurrent: false,
       color: 'emerald'
+    },
+    {
+      id: 'school',
+      name: 'Maktab',
+      price: '300,000',
+      period: 'oy',
+      priceId: 'price_school_id',
+      description: 'Maktab byudjetidan to\'lanadi',
+      features: [
+        '10 ta ustoz — biriga 30 000 so\'m',
+        'Har bir ustozga Pro imkoniyatlari',
+        'Maktab bo\'yicha umumiy hisobot',
+        'Ustozlarni qo\'shish va boshqarish'
+      ],
+      buttonText: 'Maktab uchun so\'rov',
+      isCurrent: false,
+      color: 'amber'
     }
   ];
 
@@ -214,7 +234,7 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto"
+        className="bg-white rounded-3xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto"
       >
         <div className="p-5 sm:p-8 md:p-12">
           <div className="flex justify-between items-start mb-6">
@@ -242,7 +262,7 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 sm:gap-8">
             {plans.map((plan) => (
               <div 
                 key={plan.id}
@@ -260,7 +280,7 @@ const Pricing: React.FC<PricingProps> = ({ user, onClose, onUserUpdate }) => {
                   <h3 className="text-xl font-bold text-gray-900 mb-2">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-4">
                     <span className="text-4xl font-black text-gray-900">{plan.price}</span>
-                    <span className="text-gray-500 font-medium">so'm{plan.id !== 'free' ? '/oy' : ''}</span>
+                    <span className="text-gray-500 font-medium">so'm{plan.period ? `/${plan.period}` : ''}</span>
                   </div>
                   <p className="text-sm text-gray-500 leading-relaxed">{plan.description}</p>
                 </div>
